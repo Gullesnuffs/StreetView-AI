@@ -18,7 +18,7 @@ struct Street{
 
 struct TestCase{
 	vector<Junction> junctions;
-	vector<Street> outEdges;
+	vector<vector<Street>> outEdges;
 	vector<Street> streets;
 	int cars;
 	int startIndex;
@@ -40,6 +40,8 @@ TestCase parseTestCase() {
 		int direction;
 		cin >> street.from >> street.to >> direction >> street.duration >> street.length;
 		street.directed = direction == 1;
+		data.outEdges[street.from].push_back(street);
+		if (!street.directed) data.outEdges[street.to].push_back(street);
 	}
 	return data;
 }
