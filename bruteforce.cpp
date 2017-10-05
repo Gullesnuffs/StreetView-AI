@@ -49,5 +49,87 @@ TestCase parseTestCase() {
 	return data;
 }
 
+struct Car{
+	vector<int> junctions;
+};
+
+struct Solution{
+	vector<Car> cars;
+
+	void print() {
+		cout << cars.size() << endl;
+		for(Car car : cars) {
+			cout << car.junctions.size() << endl;
+			for(int j : car.junctions)
+				cout << j << endl;
+		}
+	}
+};
+
+struct State{
+	int currentCar;
+	int currentCarLocation;
+	vector<bool> covered;
+	Solution solution;
+
+	bool operator<(const State &other) const {
+		if(currentCar != other.currentCar)
+			return currentCar < other.currentCar;
+		if(currentCarLocation != other.currentCarLocation) {
+			return currentCarLocation < other.currentCarLocation;
+		}
+		for(int i = 0; i < (int)covered.size(); i++) {
+			if(covered[i] != other.streetCovers[i])
+				return covered[i];
+		}
+		return 0;
+	}
+};
+
+map<State, double> dp;
+priority_queue<pair<double, State> > pq;
+
+void addState(double timeRemaining, State s) {
+	auto it = dp.find(s);
+	if(it == dp.end() || timeRemaining > it->first) {
+		dp[s] = timeRemaining;
+		pq.push(s);
+	}
+}
+
+void expandState(double timeRemaining, State s, TestCase data) {
+	if(s.currentCar+1 < data.cars) {
+		State newState = s;
+		newState.currentCar++;
+		newState.currentCarLocation = data.startIndex;
+		newState.solution.cars[newState.car].junctions.push_back(data.startIndex);
+		double newTimeRemaining = (data.cars - newState.car) * data.timeLimit;
+		addState(newTimeRemaining, newState);
+	}
+	double carTimeRemaining = timeRemaining - (data.cars - newState.car + 1) * data.timeLimit;
+	for(auto edge : data.outEdges[s.currentCarLocation]){
+		if(edge.duration < carTimeRemaining) {
+			int to = edge.other(s.currentCarLocation);
+			State newState = s;
+			newState.currentCarLocation = to;
+			newState.covered[edge.index] = true;
+			newState.solution.cars[newState.car].junctions.push_back(to);
+			addState(timeRemaining - edge.duration, newState);
+		}
+	}
+}
+
+Solution bruteforce(TestCase data) {
+	State init;
+	init.currentCar = 0;
+	init.covered.resize(data.streets.size());
+	pq.push(make_pair(data.timeLimit * data.cars, init));
+	while(!pq.empty()) {
+		State s = pq.top();
+		pq.pop();
+		expandState(dp[s], s);
+	}
+}
+
 int main(){
 }
