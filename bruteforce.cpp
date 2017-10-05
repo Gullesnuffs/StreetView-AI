@@ -9,25 +9,39 @@ struct Junction{
 struct Street{
 	int from, to;
 	bool directed;
-	double cost, length;
+	double duration, length;
+
+	int other(int current) {
+		return from == current ? to : from;
+	}
 };
 
 struct TestCase{
 	vector<Junction> junctions;
+	vector<Street> outEdges;
 	vector<Street> streets;
+	int cars;
+	int startIndex;
+	int timeLimit;
 };
 
-TestCase parseTestCase(){
-	int N, M, T, C, S;
+TestCase parseTestCase() {
 	TestCase data;
+	int N, M;
+	cin >> N >> M >> data.timeLimit >> data.cars >> data.startIndex;
 	data.junctions.resize(N);
 	data.streets.resize(M);
-	for(int i = 0; i < N; i++) {
-		cin >> data.junction[i].lat >> data.junction[i].lng;
-	}
-	for(int i = 0; i < M; i++) {
 
+	for (auto& junction : data.junctions) {
+		cin >> junction.lat >> junction.lng;
 	}
+
+	for(auto& street : data.streets) {
+		int direction;
+		cin >> street.from >> street.to >> direction >> street.duration >> street.length;
+		street.directed = direction == 1;
+	}
+	return data;
 }
 
 int main(){
