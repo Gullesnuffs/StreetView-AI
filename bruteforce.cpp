@@ -86,36 +86,99 @@ struct State{
 		return 0;
 	}
 
-	int score(const TestCase& data) {
+	int score(const TestCase& data) const {
 		int ret = 0;
 		for(int i = 0; i < (int)data.streets.size(); i++) {
 			ret += covered[i] * data.streets[i].length;
 		}
 		return ret;
 	}
+
+	int scoreUpperBound(const TestCase& data, int remainingTime) const {
+		// More exact but slower upper bound
+		/*vector<int> bestScore(remainingTime+1);
+		bestScore[0] = score(data);
+		for(int i = 0; i < (int)data.streets.size(); i++) {
+			if(covered[i])
+				continue;
+			const Street& s = data.streets[i];
+			for(int j = remainingTime; j >= s.duration; --j) {
+				bestScore[j] = max(bestScore[j], bestScore[j-s.duration] + s.length);
+			}
+		}
+		int ret = bestScore[0];
+		for(int i = 1; i < remainingTime+1; i++)
+			ret = max(ret, bestScore[i]);
+		return ret;*/
+
+		vector<pair<double, int> > remainingStreets;
+		for(int i = 0; i < (int)data.streets.size(); i++) {
+			if(covered[i])
+				continue;
+			double averageValue = ((double)data.streets[i].length) / data.streets[i].duration;
+			remainingStreets.emplace_back(averageValue, i);
+		}
+		sort(remainingStreets.begin(), remainingStreets.end());
+		int ub = score(data);
+		int t = remainingTime;
+		for(int i = (int)remainingStreets.size()-1; i >= 0; --i) {
+			const Street& s = data.streets[remainingStreets[i].second];
+			if(s.duration <= t){
+				t -= s.duration;
+				ub += s.length;
+			}
+			else {
+				return ub + floor((s.length * t + 0.0001) / s.duration);
+			}
+		}
+		return ub;
+	}
+};
+
+struct QueueEntry {
+	int remainingTime;
+	int upperBound;
+	State s;
+
+	QueueEntry(int _remainingTime, int _upperBound, const State _s) : 
+		remainingTime(_remainingTime),
+		upperBound(_upperBound),
+		s(_s) {
+	}
+
+	bool operator<(const QueueEntry& other) const {
+		if(upperBound != other.upperBound)
+			return upperBound < other.upperBound;
+		if(remainingTime != other.remainingTime)
+			return remainingTime < other.remainingTime;
+		return s < other.s;
+	}
 };
 
 map<State, int> dp;
-priority_queue<pair<int, State> > pq;
+priority_queue<QueueEntry> pq;
 
-void addState(int timeRemaining, const State& s) {
+void addState(int remainingTime, const State& s, const TestCase& data) {
 	auto it = dp.find(s);
-	if(it == dp.end() || timeRemaining > it->second) {
-		dp[s] = timeRemaining;
-		pq.push(make_pair(timeRemaining, s));
+	if(it == dp.end() || remainingTime > it->second) {
+		dp[s] = remainingTime;
+		pq.push(QueueEntry(remainingTime, s.scoreUpperBound(data, remainingTime), s));
 	}
 }
 
-void expandState(int timeRemaining, const State& s, const TestCase& data) {
+void expandState(int remainingTime, const State& s, const TestCase& data) {
 	if(s.currentCar+1 < data.cars) {
 		State newState = s;
 		newState.currentCar++;
 		newState.currentCarLocation = data.startIndex;
 		newState.solution.cars[newState.currentCar].junctions.push_back(data.startIndex);
 		int newTimeRemaining = (data.cars - newState.currentCar) * data.timeLimit;
-		addState(newTimeRemaining, newState);
+		addState(newTimeRemaining, newState, data);
+		if(newState.scoreUpperBound(data, newTimeRemaining) > s.scoreUpperBound(data, remainingTime)){
+			assert(0);
+		}
 	}
-	int carTimeRemaining = timeRemaining - (data.cars - s.currentCar - 1) * data.timeLimit;
+	int carTimeRemaining = remainingTime - (data.cars - s.currentCar - 1) * data.timeLimit;
 	//cerr << s.currentCarLocation << endl;
 	for(auto& edge : data.outEdges[s.currentCarLocation]){
 		if(edge.duration < carTimeRemaining) {
@@ -124,7 +187,10 @@ void expandState(int timeRemaining, const State& s, const TestCase& data) {
 			newState.currentCarLocation = to;
 			newState.covered[edge.index] = true;
 			newState.solution.cars[newState.currentCar].junctions.push_back(to);
-			addState(timeRemaining - edge.duration, newState);
+			if(newState.scoreUpperBound(data, remainingTime - edge.duration) > s.scoreUpperBound(data, remainingTime)){
+				assert(0);
+			}
+			addState(remainingTime - edge.duration, newState, data);
 		}
 	}
 }
@@ -136,28 +202,32 @@ Solution bruteforce(TestCase data) {
 	init.covered.resize(data.streets.size());
 	init.solution.cars.resize(data.cars);
 	init.solution.cars[0].junctions.push_back(data.startIndex);
-	addState(data.timeLimit * data.cars, init);
+	addState(data.timeLimit * data.cars, init, data);
 	State bestState = init;
 	int bestSolutionScore = 0;
 
 	int iteration = 0;
 	while(!pq.empty()) {
-		auto t = pq.top();
-		State s = t.second;
+		auto cur = pq.top();
 		pq.pop();
-		if(dp[s] != t.first)
+		if(dp[cur.s] != cur.remainingTime)
 			continue;
 		if (iteration % 1000 == 0) {
-			cerr << t.first << endl;
+			cerr << bestSolutionScore << " - " << cur.upperBound << endl;
+			//cerr << cur.remainingTime << endl;
 		}
 		iteration++;
-		int score = s.score(data);
+		int score = cur.s.score(data);
 		if(score >= bestSolutionScore) {
 			bestSolutionScore = score;
-			bestState = s;
+			bestState = cur.s;
 		}
-		expandState(t.first, s, data);
+		if(cur.upperBound <= bestSolutionScore) {
+			break;
+		}
+		expandState(cur.remainingTime, cur.s, data);
 	}
+	cerr << "Best score: " << bestState.score(data) << endl;
 	return bestState.solution;
 }
 
