@@ -9,11 +9,11 @@ struct Junction{
 struct Street{
 	int from, to;
 	bool directed;
-	double duration, length;
+	int duration, length;
 	int index;
 
-	int other(int current) {
-		return from == current ? to : from;
+	int other(int current) const {
+		return to + from - current;
 	}
 };
 
@@ -32,6 +32,7 @@ TestCase parseTestCase() {
 	cin >> N >> M >> data.timeLimit >> data.cars >> data.startIndex;
 	data.junctions.resize(N);
 	data.streets.resize(M);
+	data.outEdges.resize(N);
 
 	for (auto& junction : data.junctions) {
 		cin >> junction.lat >> junction.lng;
@@ -79,41 +80,50 @@ struct State{
 			return currentCarLocation < other.currentCarLocation;
 		}
 		for(int i = 0; i < (int)covered.size(); i++) {
-			if(covered[i] != other.streetCovers[i])
+			if(covered[i] != other.covered[i])
 				return covered[i];
 		}
 		return 0;
 	}
+
+	int score(const TestCase& data) {
+		int ret = 0;
+		for(int i = 0; i < (int)data.streets.size(); i++) {
+			ret += covered[i] * data.streets[i].length;
+		}
+		return ret;
+	}
 };
 
-map<State, double> dp;
-priority_queue<pair<double, State> > pq;
+map<State, int> dp;
+priority_queue<pair<int, State> > pq;
 
-void addState(double timeRemaining, State s) {
+void addState(int timeRemaining, const State& s) {
 	auto it = dp.find(s);
-	if(it == dp.end() || timeRemaining > it->first) {
+	if(it == dp.end() || timeRemaining > it->second) {
 		dp[s] = timeRemaining;
-		pq.push(s);
+		pq.push(make_pair(timeRemaining, s));
 	}
 }
 
-void expandState(double timeRemaining, State s, TestCase data) {
+void expandState(int timeRemaining, const State& s, const TestCase& data) {
 	if(s.currentCar+1 < data.cars) {
 		State newState = s;
 		newState.currentCar++;
 		newState.currentCarLocation = data.startIndex;
-		newState.solution.cars[newState.car].junctions.push_back(data.startIndex);
-		double newTimeRemaining = (data.cars - newState.car) * data.timeLimit;
+		newState.solution.cars[newState.currentCar].junctions.push_back(data.startIndex);
+		int newTimeRemaining = (data.cars - newState.currentCar) * data.timeLimit;
 		addState(newTimeRemaining, newState);
 	}
-	double carTimeRemaining = timeRemaining - (data.cars - newState.car + 1) * data.timeLimit;
-	for(auto edge : data.outEdges[s.currentCarLocation]){
+	int carTimeRemaining = timeRemaining - (data.cars - s.currentCar - 1) * data.timeLimit;
+	//cerr << s.currentCarLocation << endl;
+	for(auto& edge : data.outEdges[s.currentCarLocation]){
 		if(edge.duration < carTimeRemaining) {
 			int to = edge.other(s.currentCarLocation);
 			State newState = s;
 			newState.currentCarLocation = to;
 			newState.covered[edge.index] = true;
-			newState.solution.cars[newState.car].junctions.push_back(to);
+			newState.solution.cars[newState.currentCar].junctions.push_back(to);
 			addState(timeRemaining - edge.duration, newState);
 		}
 	}
@@ -122,14 +132,37 @@ void expandState(double timeRemaining, State s, TestCase data) {
 Solution bruteforce(TestCase data) {
 	State init;
 	init.currentCar = 0;
+	init.currentCarLocation = data.startIndex;
 	init.covered.resize(data.streets.size());
-	pq.push(make_pair(data.timeLimit * data.cars, init));
+	init.solution.cars.resize(data.cars);
+	init.solution.cars[0].junctions.push_back(data.startIndex);
+	addState(data.timeLimit * data.cars, init);
+	State bestState = init;
+	int bestSolutionScore = 0;
+
+	int iteration = 0;
 	while(!pq.empty()) {
-		State s = pq.top();
+		auto t = pq.top();
+		State s = t.second;
 		pq.pop();
-		expandState(dp[s], s);
+		if(dp[s] != t.first)
+			continue;
+		if (iteration % 1000 == 0) {
+			cerr << t.first << endl;
+		}
+		iteration++;
+		int score = s.score(data);
+		if(score >= bestSolutionScore) {
+			bestSolutionScore = score;
+			bestState = s;
+		}
+		expandState(t.first, s, data);
 	}
+	return bestState.solution;
 }
 
 int main(){
+	auto testCase = parseTestCase();
+	auto solution = bruteforce(testCase);
+	solution.print();
 }
