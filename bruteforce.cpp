@@ -10,6 +10,7 @@ struct Street{
 	int from, to;
 	bool directed;
 	double duration, length;
+	int index;
 
 	int other(int current) {
 		return from == current ? to : from;
@@ -36,7 +37,9 @@ TestCase parseTestCase() {
 		cin >> junction.lat >> junction.lng;
 	}
 
-	for(auto& street : data.streets) {
+	for (int i = 0; i < M; i++) {
+		auto& street = data.streets[i];
+		street.index = i;
 		int direction;
 		cin >> street.from >> street.to >> direction >> street.duration >> street.length;
 		street.directed = direction == 1;
