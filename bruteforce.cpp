@@ -20,6 +20,7 @@ struct Street{
 struct TestCase{
 	vector<Junction> junctions;
 	vector<vector<Street>> outEdges;
+	vector<vector<Street>> inEdges;
 	vector<Street> streets;
 	int cars;
 	int startIndex;
@@ -33,6 +34,7 @@ TestCase parseTestCase() {
 	data.junctions.resize(N);
 	data.streets.resize(M);
 	data.outEdges.resize(N);
+	data.inEdges.resize(N);
 
 	for (auto& junction : data.junctions) {
 		cin >> junction.lat >> junction.lng;
@@ -45,7 +47,11 @@ TestCase parseTestCase() {
 		cin >> street.from >> street.to >> direction >> street.duration >> street.length;
 		street.directed = direction == 1;
 		data.outEdges[street.from].push_back(street);
-		if (!street.directed) data.outEdges[street.to].push_back(street);
+		data.inEdges[street.to].push_back(street);
+		if (!street.directed) {
+			data.outEdges[street.to].push_back(street);
+			data.inEdges[street.from].push_back(street);
+		}
 	}
 	return data;
 }
@@ -128,7 +134,7 @@ struct State{
 				ub += s.length;
 			}
 			else {
-				return ub + floor((s.length * t + 0.0001) / s.duration);
+				return ub + (int) floor((s.length * t + 0.0001) / s.duration);
 			}
 		}
 		return ub;
@@ -195,6 +201,7 @@ void expandState(int remainingTime, const State& s, const TestCase& data) {
 	}
 }
 
+// Exact exponential-time solution based on A*
 Solution bruteforce(TestCase data) {
 	State init;
 	init.currentCar = 0;
@@ -231,8 +238,166 @@ Solution bruteforce(TestCase data) {
 	return bestState.solution;
 }
 
+// Solution based on constructing Eulerian paths
+Solution eulerianSolver(TestCase data) {
+	State s;
+	s.currentCar = 0;
+	s.covered.resize(data.streets.size());
+	s.solution.cars.resize(data.cars);
+	for(int c = 0; c < data.cars; c++) {
+		s.currentCar = c;
+		s.currentCarLocation = data.startIndex;
+		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
+		//vector<int> outDegree(data.junctions.size());
+		vector<int> totDegree(data.junctions.size());
+		for(auto e : data.streets) {
+			if(s.covered[e.index])
+				continue;
+			totDegree[e.from]++;
+			totDegree[e.to]++;
+		}
+		/*for(int i = 0; i < (int)data.junctions.size(); i++) {
+			int totOut = 0;
+			int totIn = 0;
+			for(auto e : data.outEdges[i]){
+				if(covered[e.index])
+					continue;
+				++totOut;
+			}
+			for(auto e : data.inEdges[i]){
+				if(covered[e.index])
+					continue;
+				++totIn;
+			}
+			outDegree[i] = totOut;
+		}*/
+		int remainingTime = data.timeLimit;
+		while(true) {
+			bool foundEdge = false;
+			for(auto e : data.outEdges[s.currentCarLocation]) {
+				if(s.covered[e.index] || e.duration > remainingTime)
+					continue;
+				int to = e.other(s.currentCarLocation);
+				foundEdge = true;
+				--totDegree[s.currentCarLocation];
+				--totDegree[to];
+				s.currentCarLocation = to;
+				s.covered[e.index] = true;
+				s.solution.cars[s.currentCar].junctions.push_back(to);
+				remainingTime -= e.duration;
+				//cerr << "Good " << e.duration << endl;
+				break;
+			}
+			if(foundEdge) {
+				continue;
+			}
+			priority_queue<pair<int, int> > q;
+			map<int, int> minDis;
+			map<int, int> parent;
+			map<int, Street> parentEdge;
+			q.push(make_pair(0, s.currentCarLocation));
+			minDis[s.currentCarLocation] = 0;
+			parent[s.currentCarLocation] = -1;
+			bool failed = true;
+			while(!q.empty()){
+				auto cur = q.top();
+				q.pop();
+				int d = -cur.first;
+				int node = cur.second;
+				if(minDis[node] < d)
+					continue;
+				if(totDegree[node]%2 == 1 && node != s.currentCarLocation) {
+					vector<int> path;
+					while(node != s.currentCarLocation){
+						path.push_back(node);
+						node = parent[node];
+					}
+					reverse(path.begin(), path.end());
+					//cerr << "Path length " << path.size() << endl;
+					for(int i = 0; i < (int)path.size(); i++) {
+						int to = path[i];
+						const Street& edge = parentEdge[to];
+						if(edge.duration > remainingTime)
+							break;
+						failed = false;
+						--totDegree[s.currentCarLocation];
+						--totDegree[to];
+						s.currentCarLocation = to;
+						s.covered[edge.index] = true;
+						s.solution.cars[s.currentCar].junctions.push_back(to);
+						remainingTime -= edge.duration;
+						//cerr << "Bad  " << edge.duration << endl;
+					}
+					break;
+				}
+				for(auto e : data.outEdges[node]) {
+					int to = e.other(node);
+					int newDis = d + e.duration;
+					auto it = minDis.find(to);
+					if(it == minDis.end() || newDis < it->second) {
+						q.push(make_pair(-newDis, to));
+						minDis[to] = newDis;
+						parent[to] = node;
+						parentEdge[to] = e;
+					}
+				}
+			}
+			if(failed)
+				break;
+		}
+		//cerr << "Remaining " << remainingTime << endl;
+		/*for(int i = 0; i < (int)data.junctions.size(); i++) {
+			int totOut = additionalOutEdges.size();
+			int totIn = additionalInEdges.size();
+			for(auto e : data.outEdges[i]){
+				if(covered[e.index])
+					continue;
+				++totOut;
+			}
+			for(auto e : data.inEdges[i]){
+				if(covered[e.index])
+					continue;
+				++totIn;
+			}
+			relDegree[i] = totOut - totIn;
+		}
+		for(int i = 0; i < (int)data.junctions.size(); i++) {
+			while(relDegree[i]) {
+				priority_queue<pair<int, int> > q;
+				map<int, int> minDis;
+				q.push(make_pair(0, i));
+				minDis[i] = 0;
+				while(!q.empty()){
+					auto cur = q.top();
+					q.pop();
+					int d = -cur.first;
+					int node = cur.second;
+					if(relDegree[node]){
+
+						break;
+					}
+					if(minDis[node] < d)
+						continue;
+					for(auto e : data.outEdges[node]) {
+						int to = e.other(node);
+						int newDis = d + e.duration;
+						auto it = minDis.find(to);
+						if(it == minDis.end() || newDis < it->second) {
+							q.push(make_pair(-newDis, to));
+							M[to] = newDis;
+						}
+					}
+				}
+			}
+		}*/
+	}
+	cerr << "Best score: " << s.score(data) << endl;
+	return s.solution;
+}
+
 int main(){
 	auto testCase = parseTestCase();
-	auto solution = bruteforce(testCase);
+	auto solution = eulerianSolver(testCase);
+	//auto solution = bruteforce(testCase);
 	solution.print();
 }
