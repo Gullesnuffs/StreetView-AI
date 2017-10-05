@@ -273,22 +273,28 @@ Solution eulerianSolver(TestCase data) {
 		}*/
 		int remainingTime = data.timeLimit;
 		while(true) {
-			bool foundEdge = false;
+			double bestEdgeValue = -1;
+			Street bestEdge;
 			for(auto e : data.outEdges[s.currentCarLocation]) {
 				if(s.covered[e.index] || e.duration > remainingTime)
 					continue;
-				int to = e.other(s.currentCarLocation);
-				foundEdge = true;
+				double value = e.length / e.duration;
+				if(e.directed)
+					value *= 1000;
+				if(value > bestEdgeValue) {
+					bestEdgeValue = value;
+					bestEdge = e;
+				}
+			}
+			if(bestEdgeValue >= 0) {
+				int to = bestEdge.other(s.currentCarLocation);
 				--totDegree[s.currentCarLocation];
 				--totDegree[to];
 				s.currentCarLocation = to;
-				s.covered[e.index] = true;
+				s.covered[bestEdge.index] = true;
 				s.solution.cars[s.currentCar].junctions.push_back(to);
-				remainingTime -= e.duration;
+				remainingTime -= bestEdge.duration;
 				//cerr << "Good " << e.duration << endl;
-				break;
-			}
-			if(foundEdge) {
 				continue;
 			}
 			priority_queue<pair<int, int> > q;
