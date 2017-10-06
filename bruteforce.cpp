@@ -15,6 +15,10 @@ struct Street{
 	int other(int current) const {
 		return to + from - current;
 	}
+
+	bool operator< (const Street &other) const {
+		return index < other.index;
+	}
 };
 
 struct TestCase{
@@ -238,17 +242,59 @@ Solution bruteforce(TestCase data) {
 	return bestState.solution;
 }
 
+int countOut(const TestCase& data, const State& s, map<Street, int>& source, map<Street, int>& destination, int node) {
+	int ret = 0;
+	for(auto e : data.outEdges[node]) {
+		if(s.covered[e.index])
+			continue;
+		if(source.count(e) && source[e] != node)
+			continue;
+		ret++;
+	}
+	return ret;
+}
+
+int countIn(const TestCase& data, const State& s, map<Street, int>& source, map<Street, int>& destination, int node) {
+	int ret = 0;
+	for(auto e : data.inEdges[node]) {
+		if(s.covered[e.index])
+			continue;
+		if(destination.count(e) && destination[e] != node)
+			continue;
+		ret++;
+	}
+	return ret;
+}
+
 // Solution based on constructing Eulerian paths
 Solution eulerianSolver(TestCase data) {
 	State s;
 	s.currentCar = 0;
 	s.covered.resize(data.streets.size());
 	s.solution.cars.resize(data.cars);
+	/*map<int, int> numIn;
+	map<int, int> numOut;
+	map<int, int> numUndirected;
+	for(auto e : data.streets) {
+		if(e.directed){
+			++numOut[e.from];
+			++numIn[e.to];
+		}
+		else{
+			++numUndirected[e.from];
+			++numUndirected[e.to];
+		}
+	}
+	for(int i = 0; i < (int)data.inEdges.size(); i++) {
+		cerr << numIn[i] << " " << numOut[i] << " " << numUndirected[i] << endl;
+	}*/
 	for(int c = 0; c < data.cars; c++) {
+		map<Street, int> source;
+		map<Street, int> destination;
 		s.currentCar = c;
 		s.currentCarLocation = data.startIndex;
 		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
-		//vector<int> outDegree(data.junctions.size());
+		vector<int> outDegree(data.junctions.size());
 		vector<int> totDegree(data.junctions.size());
 		for(auto e : data.streets) {
 			if(s.covered[e.index])
@@ -256,21 +302,39 @@ Solution eulerianSolver(TestCase data) {
 			totDegree[e.from]++;
 			totDegree[e.to]++;
 		}
-		/*for(int i = 0; i < (int)data.junctions.size(); i++) {
+		for(auto e : data.streets) {
+			if(s.covered[e.index])
+				continue;
+			if(e.directed)
+				continue;
+			int rel1 = countOut(data, s, source, destination, e.from) - 
+				countIn(data, s, source, destination, e.from);
+			int rel2 = countOut(data, s, source, destination, e.to) - 
+				countIn(data, s, source, destination, e.to);
+			if(rel1 > rel2) {
+				source[e] = e.to;
+				destination[e] = e.from;
+			}
+			else{
+				source[e] = e.from;
+				destination[e] = e.to;
+			}
+		}
+		for(int i = 0; i < (int)data.junctions.size(); i++) {
 			int totOut = 0;
 			int totIn = 0;
 			for(auto e : data.outEdges[i]){
-				if(covered[e.index])
+				if(s.covered[e.index])
 					continue;
 				++totOut;
 			}
 			for(auto e : data.inEdges[i]){
-				if(covered[e.index])
+				if(s.covered[e.index])
 					continue;
 				++totIn;
 			}
 			outDegree[i] = totOut;
-		}*/
+		}
 		int remainingTime = data.timeLimit;
 		while(true) {
 			double bestEdgeValue = -1;
@@ -281,6 +345,14 @@ Solution eulerianSolver(TestCase data) {
 				double value = e.length / e.duration;
 				if(e.directed)
 					value *= 1000;
+				else {
+					if(source[e] == s.currentCarLocation) {
+						value *= 1;
+					}
+					else {
+						value /= 1;
+					}
+				}
 				if(value > bestEdgeValue) {
 					bestEdgeValue = value;
 					bestEdge = e;
@@ -290,6 +362,7 @@ Solution eulerianSolver(TestCase data) {
 				int to = bestEdge.other(s.currentCarLocation);
 				--totDegree[s.currentCarLocation];
 				--totDegree[to];
+				--outDegree[s.currentCarLocation];
 				s.currentCarLocation = to;
 				s.covered[bestEdge.index] = true;
 				s.solution.cars[s.currentCar].junctions.push_back(to);
@@ -312,7 +385,7 @@ Solution eulerianSolver(TestCase data) {
 				int node = cur.second;
 				if(minDis[node] < d)
 					continue;
-				if(totDegree[node]%2 == 1 && node != s.currentCarLocation) {
+				if(outDegree[node] && totDegree[node]%2 == 1 && node != s.currentCarLocation) {
 					vector<int> path;
 					while(node != s.currentCarLocation){
 						path.push_back(node);
@@ -328,6 +401,7 @@ Solution eulerianSolver(TestCase data) {
 						failed = false;
 						--totDegree[s.currentCarLocation];
 						--totDegree[to];
+						--outDegree[s.currentCarLocation];
 						s.currentCarLocation = to;
 						s.covered[edge.index] = true;
 						s.solution.cars[s.currentCar].junctions.push_back(to);
