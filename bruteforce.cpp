@@ -82,11 +82,19 @@ TestCase parseTestCase() {
 		cin >> junction.lat >> junction.lng;
 	}
 
+	set<pair<int, int> > edges;
 	for (int i = 0; i < M; i++) {
 		auto& street = data.streets[i];
 		street.index = i;
 		int direction;
 		cin >> street.from >> street.to >> direction >> street.duration >> street.length;
+		if(edges.count(make_pair(street.from, street.to))) {
+			cerr << "Duplicate edges detected!" << endl;
+			cerr << street.from << " " << street.to << " " << direction << " " << street.duration << " " << street.length << endl;
+			assert(0);
+		}
+		edges.insert(make_pair(street.from, street.to));
+		edges.insert(make_pair(street.to, street.from));
 		street.directed = direction == 1;
 	}
 	fillInAndOutEdges(data);
@@ -1518,11 +1526,11 @@ int main(){
 	ll sumScores = 0;
 	ll bestScore = 0;
 	ll numScores = 0;
-	for(int i = 0; i < 500; i++) {
+	for(int i = 0; i < 5; i++) {
 		solution = eulerianSolver(testCase);
-		/*if(totalScore > 1915000) {
+		if(totalScore > 1915000) {
 			solution = optimizeSolution(testCase, solution);
-		}*/
+		}
 		totalScore = checkSolution(testCase, solution);
 		sumScores += totalScore;
 		if(totalScore > bestScore) {
@@ -1532,7 +1540,6 @@ int main(){
 		++numScores;
 		cerr << "Best: " << bestScore << endl;
 		cerr << "Average: " << (sumScores)/numScores << endl << endl;
-		break;
 	}
 	/*auto solution = bruteforce(testCase);
 	auto bestSolution = solution;*/
