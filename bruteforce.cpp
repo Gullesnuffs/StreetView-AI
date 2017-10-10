@@ -1462,19 +1462,67 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 	return solution;
 }
 
+void convertToPDDL(const TestCase& data) {
+	ofstream domain;
+	domain.open("domain.pddl");
+	domain << "(define (domain metrictest)" << endl;
+    domain << "\t(:requirements :strips :action-costs)" << endl;
+    domain << "\t(:predicates (done ?x) (at ?y))" << endl;
+  	domain << endl;
+   	domain << "\t(:functions " << endl;
+    domain << "\t\t((total-cost) - number)" << endl;
+    domain << "\t)" << endl;
+
+	int edgeCount = 0;
+	int actionCount = 0;
+	for(auto e : data.streets) {
+		domain << "\t(:action do" << actionCount++ << endl;
+		domain << "\t\t:precondition (at node" << e.from << ")" << endl;
+		domain << "\t\t:effect (and (done edge" << edgeCount << ") (increase (total-cost) " << e.duration << ") (not (at node" << e.from << ")) (at node" << e.to << "))" << endl;
+		domain << "\t)" << endl;
+		if(!e.directed) {
+			domain << "\t(:action do" << actionCount++ << endl;
+			domain << "\t\t:precondition (at node" << e.to << ")" << endl;
+			domain << "\t\t:effect (and (done edge" << edgeCount << ") (increase (total-cost) " << e.duration << ") (not (at node" << e.to << ")) (at node" << e.from << "))" << endl;
+			domain << "\t)" << endl;
+		}
+		++edgeCount;
+	}
+	domain << ")" << endl << endl;
+	domain.close();
+
+	ofstream problem;
+	problem.open("problem.pddl");
+
+	problem << "(define (problem problem_1)" << endl;
+    problem << "\t(:domain metrictest)" << endl;
+    problem << "\t(:objects foo)" << endl;
+    problem << "\t(:init (= (total-cost) 0) (at node0))" << endl;
+    problem << "\t(:goal (and";
+	for(int i = 0; i < edgeCount; ++i) {
+		problem << " (done edge" << i << ")";
+	}
+	problem << "))" << endl;
+    problem << "\t(:metric minimize (total-cost))" << endl;
+    problem << ")" << endl;
+	problem.close();
+
+}
+
 int main(){
 	auto testCase = parseTestCase();
+	convertToPDDL(testCase);
 	auto solution = Solution();
-	solution = optimizeSolution(testCase, solution);
+	//solution = optimizeSolution(testCase, solution);
 	auto bestSolution = solution;
 	ll sumScores = 0;
 	ll bestScore = 0;
 	ll numScores = 0;
 	for(int i = 0; i < 500; i++) {
 		solution = eulerianSolver(testCase);
-		if(totalScore > 1915000) {
+		/*if(totalScore > 1915000) {
 			solution = optimizeSolution(testCase, solution);
-		}
+		}*/
 		totalScore = checkSolution(testCase, solution);
 		sumScores += totalScore;
 		if(totalScore > bestScore) {
