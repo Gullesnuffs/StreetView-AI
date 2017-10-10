@@ -99,6 +99,29 @@ TestCase parseTestCase() {
 	}
 	fillInAndOutEdges(data);
 	calculateOrderedStreets(data);
+	for (int i = 0; i < N; i++) {
+		vector<bool> vis(N);
+		queue<int> q;
+		q.push(i);
+		vis[i] = 1;
+		int visN = 1;
+		while(!q.empty()) {
+			int cur = q.front();
+			q.pop();
+			for(auto e : data.outEdges[cur]) {
+				int to = e.other(cur);
+				if(!vis[to]) {
+					vis[to] = true;
+					++visN;
+					q.push(to);
+				}
+			}
+		}
+		if(visN < N) {
+			cerr << "Not every node is reachable from node " << i << endl;
+			assert(0);
+		}
+	}
 	return data;
 }
 
