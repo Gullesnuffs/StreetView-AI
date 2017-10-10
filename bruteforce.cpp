@@ -11,7 +11,7 @@ struct Street{
 	int from, to;
 	bool directed;
 	int duration, length;
-	int index;
+	int index, orderedIndex;
 	vector<int> innerJunctions;
 
 	int other(int current) const {
@@ -54,6 +54,7 @@ void calculateOrderedStreets(TestCase& data) {
 	sort(partial.begin(), partial.end());
 	reverse(partial.begin(), partial.end());
 	for (auto p : partial) {
+		data.streets[p.second].orderedIndex = data.orderedStreets.size();
 		data.orderedStreets.push_back(data.streets[p.second]);
 	}
 }
@@ -198,11 +199,71 @@ struct BruteForceState{
 		return ret;
 	}
 
+	int canTakeIndex = 0;
+	int remainingTime = 0;
+	int expectedAdditionalLength = 0;
+	int expectedAdditionalTime = 0;
+	int currentScore = 0;
+	int upperBound = 0;
+	void traverseEdge(const TestCase& data, const Street& edge) {
+		int to = edge.other(currentCarLocation);
+		currentCarLocation = to;
+		solution = new PartialSolution(solution, currentCar, to);
+
+		remainingTime -= edge.duration;
+		if (covered[edge.index]) {
+			recalculateUpperBound(data);
+			return;
+		}
+
+		currentScore += edge.length;
+
+		if (data.streets[edge.index].orderedIndex < canTakeIndex) {
+			expectedAdditionalTime -= edge.duration;
+			expectedAdditionalLength -= edge.length;
+		}
+		covered[edge.index] = true;
+		recalculateUpperBound(data);
+	}
+
+	void recalculateUpperBound (const TestCase& data) {
+		for (;expectedAdditionalTime > remainingTime && canTakeIndex-1 >= 0; canTakeIndex--) {
+			auto& s = data.orderedStreets[canTakeIndex-1];
+			if(covered[s.index]) continue;
+			expectedAdditionalTime -= s.duration;
+			expectedAdditionalLength -= s.length;
+		}
+
+		for (;canTakeIndex < data.orderedStreets.size(); canTakeIndex++) {
+			auto& s = data.orderedStreets[canTakeIndex];
+			if(covered[s.index]) continue;
+			if(expectedAdditionalTime + s.duration <= remainingTime){
+				expectedAdditionalTime += s.duration;
+				expectedAdditionalLength += s.length;
+			} else {
+				break;
+			}
+		}
+
+		upperBound = currentScore + expectedAdditionalLength;
+		if(canTakeIndex < data.orderedStreets.size()) {
+			auto& s = data.orderedStreets[canTakeIndex];
+			upperBound += (int) floor(((double)s.length * (remainingTime - expectedAdditionalTime) + 0.0001) / s.duration);
+		}
+	}
+
 	int scoreUpperBound(const TestCase& data, int remainingTime) const {
-		int ub = score(data);
+		//int ub = score(data);
+		//assert(currentScore == score(data));
+		return upperBound;
+
+		assert(remainingTime == this->remainingTime);
+		int ub = currentScore;
 
 		int t = remainingTime;
-		for (auto& s : data.orderedStreets) {
+		//for (auto& s : data.orderedStreets) {
+		for (int i = 0; i < data.orderedStreets.size(); i++) {
+			auto& s = data.orderedStreets[i];
 			if(covered[s.index]) continue;
 
 			if(s.duration <= t){
@@ -210,9 +271,14 @@ struct BruteForceState{
 				ub += s.length;
 			}
 			else {
-				return ub + (int) floor((s.length * t + 0.0001) / s.duration);
+				auto res = ub + (int) floor(((double)s.length * t + 0.0001) / s.duration);
+				//auto res = ub;
+				assert(upperBound == res);
+				return res;
 			}
 		}
+
+		assert(upperBound == ub);
 		return ub;
 	}
 };
@@ -304,7 +370,7 @@ TestCase compressTestCase(TestCase& data, Solution& solution) {
 
 
 	vector<bool> covered(data.streets.size());
-	int maxAdditional = 1000;
+	int maxAdditional = 10;
 	for(const Car& car : solution.cars) {
 		for (int i = 0; i < car.junctions.size()-1; i++) {
 			covered[streetBetween(data, car.junctions[i], car.junctions[i+1]).index] = true;
@@ -510,25 +576,22 @@ void expandState(int remainingTime, const BruteForceState& s, const TestCase& da
 		newState.solution = new PartialSolution(s.solution, newState.currentCar, data.startIndex);
 		//.cars[newState.currentCar].junctions.push_back(data.startIndex);
 		int newTimeRemaining = (data.cars - newState.currentCar) * data.timeLimit;
-		addState(newTimeRemaining, newState, data);
+		newState.remainingTime = newTimeRemaining;
+		newState.recalculateUpperBound(data);
+		addState(newState.remainingTime, newState, data);
 		#if DEBUG
 		assert(newState.scoreUpperBound(data, newTimeRemaining) <= s.scoreUpperBound(data, remainingTime));
 		#endif
 	}
 	int carTimeRemaining = remainingTime - (data.cars - s.currentCar - 1) * data.timeLimit;
-	//cerr << s.currentCarLocation << endl;
 	for(auto& edge : data.outEdges[s.currentCarLocation]){
 		if(edge.duration < carTimeRemaining) {
-			int to = edge.other(s.currentCarLocation);
 			BruteForceState newState = s;
-			newState.currentCarLocation = to;
-			newState.covered[edge.index] = true;
-			//newState.solution.cars[newState.currentCar].junctions.push_back(to);
-			newState.solution = new PartialSolution(s.solution, newState.currentCar, to);
+			newState.traverseEdge(data, edge);
 			#if DEBUG
 			assert(newState.scoreUpperBound(data, remainingTime - edge.duration) <= s.scoreUpperBound(data, remainingTime));
 			#endif
-			addState(remainingTime - edge.duration, newState, data);
+			addState(newState.remainingTime, newState, data);
 		}
 	}
 }
@@ -546,9 +609,13 @@ Solution bruteforce(TestCase data) {
 	init.currentCarLocation = data.startIndex;
 	init.covered.resize(data.streets.size());
 	init.solution = new PartialSolution(nullptr, 0, data.startIndex);
+	init.remainingTime = data.timeLimit * data.cars;
+	init.recalculateUpperBound(data);
+	init.scoreUpperBound(data, init.remainingTime);
+	cerr << "Init done" << endl;
 	//init.solution.cars.resize(data.cars);
 	//init.solution.cars[0].junctions.push_back(data.startIndex);
-	addState(data.timeLimit * data.cars, init, data);
+	addState(init.remainingTime, init, data);
 	BruteForceState bestState = init;
 	int bestSolutionScore = 0;
 
@@ -563,7 +630,7 @@ Solution bruteforce(TestCase data) {
 			continue;
 		if (iteration % 1000 == 0) {
 			cerr << bestSolutionScore << " - " << cur.upperBound << endl;
-			cerr << w0 << " " << w1 << " " << w2 << " " << w3 << " " << w4 << endl;
+			//cerr << w0 << " " << w1 << " " << w2 << " " << w3 << " " << w4 << endl;
 			//cerr << cur.remainingTime << endl;
 		}
 		iteration++;
@@ -787,15 +854,15 @@ struct EulerGraph {
 				int x = s.back();
 				unvisited.erase(x);
 				auto& it = its[x], end = edges[x].end();
-				if(it == end) { 
-					s.pop_back(); 
+				if(it == end) {
+					s.pop_back();
 					if(!E.empty()) {
-						v.push_back(E.back()); 
+						v.push_back(E.back());
 						E.pop_back();
 					}
 				}
-				else { 
-					s.push_back(it->other(x)); 
+				else {
+					s.push_back(it->other(x));
 					E.push_back(*it);
 					++its[x];
 				}
@@ -1104,9 +1171,9 @@ State extendSolution(const TestCase& data, State s) {
 			continue;
 		if(e.directed)
 			continue;
-		int rel1 = countOut(data, s, source, destination, e.from) - 
+		int rel1 = countOut(data, s, source, destination, e.from) -
 		countIn(data, s, source, destination, e.from);
-		int rel2 = countOut(data, s, source, destination, e.to) - 
+		int rel2 = countOut(data, s, source, destination, e.to) -
 		countIn(data, s, source, destination, e.to);
 		if(rel1 > rel2) {
 			source[e] = e.to;
@@ -1465,13 +1532,18 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 int main(){
 	auto testCase = parseTestCase();
 	auto solution = Solution();
-	solution = optimizeSolution(testCase, solution);
+	//solution = optimizeSolution(testCase, solution);
 	auto bestSolution = solution;
 	ll sumScores = 0;
 	ll bestScore = 0;
 	ll numScores = 0;
 	for(int i = 0; i < 500; i++) {
 		solution = eulerianSolver(testCase);
+		cerr << "Compressing" << endl;
+		auto compressed = compressTestCase(testCase, solution);
+		cerr << "SIZE: " << compressed.junctions.size() << endl;
+		auto smallSolution = bruteforce(compressed);
+		solution = expandSolution(testCase, compressed, smallSolution);
 		if(totalScore > 1915000) {
 			solution = optimizeSolution(testCase, solution);
 		}
