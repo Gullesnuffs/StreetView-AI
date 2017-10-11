@@ -1528,6 +1528,25 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 	return solution;
 }
 
+Solution trimSolution (const TestCase& data, Solution& solution) {
+	Solution res = solution;
+	for (auto& car : res.cars) {
+		// Ensure the solution meets the time criteria
+		int time = 0;
+		int i = 1;
+		while(i < (int)car.junctions.size()) {
+			auto street = streetBetween(data, car.junctions[i-1], car.junctions[i]);
+			time += street.duration;
+			if (time > data.timeLimit) {
+				break;
+			}
+			i++;
+		}
+		while(i < (int)car.junctions.size()) car.junctions.pop_back();
+	}
+	return res;
+}
+
 // Pick car with lowest used time
 // For each edge it can take
 //    try to take that edge and recurse for say depth 4 or 5
@@ -1539,8 +1558,10 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 struct GreedyState {
 	vector<bool> covered;
 	vector<int> positions;
+	vector<int> times;
+	Solution solution;
 
-	void findClosestNodeWithOutEdge (const TestCase& data, int position, const Street*& firstEdge, int& finalNode) {
+	void findClosestNodeWithOutEdge (const TestCase& data, int position, const Street*& firstEdge, int& finalNode, int& totalDuration) {
 		// Find closest node with an out edge
 		priority_queue<pair<int,int>> q;
 		map<int,int> parents;
@@ -1559,10 +1580,13 @@ struct GreedyState {
 			for (auto& e : data.outEdges[node]) {
 				if (!covered[e.index]) {
 					finalNode = node;
+					totalDuration = dist;
+					assert(parents[node] != -1);
 					while(parents[node] != -1) {
-						node = parents[node];
 						firstEdge = edges[node];
+						node = parents[node];
 					}
+					assert(firstEdge != nullptr);
 					return;
 				}
 			}
@@ -1581,112 +1605,155 @@ struct GreedyState {
 		cerr << "No node" << endl;
 		firstEdge = nullptr;
 		finalNode = -1;
+		totalDuration = 0;
 	}
 
+	struct NodeInfo {
+		float dist;
+		const Street* edge;
+		int parent;
+		int root;
+
+		NodeInfo() {}
+		NodeInfo(float dist) : dist(dist), edge(nullptr), parent(-2), root(-1) {}
+		NodeInfo(float dist, const Street* edge, int parent, int root) : dist(dist), edge(edge), parent(parent), root(root) {}
+	};
+
 	int heuristic(const TestCase& data) {
-		cerr << "E" << endl;
-
 		// Find closest node with an out edge
-		priority_queue<pair<int,int>> q;
-		map<int,int> parents;
-		map<int,const Street*> edges;
-		map<int,float> dists;
+		priority_queue<pair<float,int>> q;
+		//map<int,int> parents;
+		//map<int,const Street*> edges;
+		//map<int,float> dists;
+		vector<NodeInfo> infos(data.junctions.size(), NodeInfo(1e9));
+		//vector<const Street*> edges(data.junctions.size());
+		//vector<int> parents(data.junctions.size());
 
-		for (auto position : positions) {
-			q.push(make_pair(0, position));
-			parents[position] = -1;
-			dists[position] = 0;
+		for (int i = 0; i < (int)positions.size(); i++) {
+			q.push(make_pair(0, positions[i]));
+			infos[positions[i]] = NodeInfo(0, nullptr, -1, i);
 		}
+		vector<int> multipliers ((int)positions.size(), 0);
 
+		int iterations = 0;
 		while(!q.empty()) {
-			int dist = -q.top().first;
+			iterations++;
+			float dist = -q.top().first;
 			int node = q.top().second;
 			q.pop();
-			if (dist != dists[node]) continue;
+			if (dist != infos[node].dist) continue;
+			int root = infos[node].root;
+			multipliers[root]++;
 			for (auto& e : data.outEdges[node]) {
-				float newDist = covered[e.index] ? dist + e.duration : ceil(dist) - 0.5f;
+				float m = 10.0f/(1 + sqrt(multipliers[root]));
+				float newDist = (covered[e.index] ? dist + e.duration : dist) + m;
 				int other = e.other(node);
-				if (dists.find(other) == dists.end() || newDist < dists[other]) {
-					dists[other] = newDist;
-					parents[other] = node;
-					edges[other] = &e;
+				if (newDist < infos[other].dist) {
+					infos[other] = NodeInfo(newDist, &e, node, root);
 					q.push(make_pair(-newDist, other));
 				}
 			}
 		}
 
 		vector<bool> visited(covered.size());
+
 		int totalTime = 0;
 		for (auto& e : data.streets) {
 			if (!covered[e.index] && !visited[e.index]) {
 				visited[e.index] = true;
 				totalTime += e.duration;
 
-				auto node = parents[e.to] == e.from ? e.from : e.to;
+				//if (parents[e.from] != -1) cout << "DEBUG:LINE " << 0 << " " << e.from << " " << parents[e.from] << endl;
+				//if (parents[e.to] != -1) cout << "DEBUG:LINE " << 0 << " " << e.to << " " << parents[e.to] << endl;
+
+				auto node = e.directed ? e.from : (infos[e.to].parent == e.from ? e.from : e.to);
+
 				while(true) {
-					auto e2 = edges[node];
+					auto e2 = infos[node].edge;
 					if (e2 != nullptr && !visited[e2->index]) {
 						visited[e2->index] = true;
 						totalTime += e2->duration;
 					} else {
 						break;
 					}
-					node = parents[node];
+					node = infos[node].parent;
 				}
 			}
 		}
 
-		cerr << totalTime << endl;
-		return totalTime;
+		for (auto t : times) totalTime += t;
+
+		return -totalTime;
 	}
 
-	int expand(const TestCase& data, int car, int depth, const Street*& usedEdge) {
+	int expand(const TestCase& data, int car, int depth, int previousPosition, int currentScore, const Street*& usedEdge) {
 		if (depth <= 0) {
 			return heuristic(data);
 		}
 
-		int bestEdge = -1;
-		int bestScore = -1;
 		int position = positions[car];
-		for (int i = 0; i < (int)data.outEdges[position].size(); i++) {
-			auto& edge = data.outEdges[position][i];
-			if (covered[edge.index]) continue;
+		bool anyNonCoveredEdge = false;
+		for (auto& e : data.outEdges[position]) anyNonCoveredEdge |= !covered[e.index];
 
-			covered[edge.index] = true;
-			positions[car] = edge.other(position);
+		if (anyNonCoveredEdge) {
+			const Street* bestEdge = nullptr;
+			int bestScore = -1e9;
+			//int offset = rand();
+			for (int i = 0; i < (int)data.outEdges[position].size(); i++) {
+				//auto& edge = data.outEdges[position][(i + offset) % (int)data.outEdges[position].size()];
+				auto& edge = data.outEdges[position][i];
+				if (covered[edge.index]) continue;
+				//if (edge.other(position) == previousPosition) continue;
 
-			const Street* dummy;
-			int score = expand(data, car, depth - 1, dummy);
+				covered[edge.index] = true;
+				times[car] += edge.duration;
+				positions[car] = edge.other(position);
 
-			positions[car] = position;
-			covered[edge.index] = false;
+				const Street* dummy;
+				int score = expand(data, car, depth - 1, position, currentScore, dummy);
 
-			if (score > bestScore) {
-				bestScore = score;
-				bestEdge = i;
+				positions[car] = position;
+				times[car] -= edge.duration;
+				covered[edge.index] = false;
+
+				// This edge is better if it yields a higher expected score or 
+				// if the score is equal but we get a higher score immediately when traversing it
+				if (score > bestScore) { // || (score == bestScore && edge.length*bestEdge->duration > edge.duration*bestEdge->length)) {
+					bestScore = score;
+					bestEdge = &edge;
+
+					if (bestScore == currentScore) {
+						// Cannot get any better, break here
+						break;
+					}
+				}
 			}
-		}
 
-		if (bestEdge != -1) {
-			usedEdge = &data.outEdges[position][bestEdge];
+			//if (bestEdgeIsCovered) cerr << "!" << endl;
+			//usedEdge = &data.outEdges[position][bestEdge];
+			usedEdge = bestEdge;
 			return bestScore;
 		} else {
 			const Street* firstEdge;
 			int newPosition;
-			findClosestNodeWithOutEdge(data, position, firstEdge, newPosition);
-			if (newPosition == -1) {
+			int duration;
+			findClosestNodeWithOutEdge(data, position, firstEdge, newPosition, duration);
+			if (firstEdge == nullptr) {
+				usedEdge = nullptr;
 				// End of path
 				// Evaluate
 				// ...
-				return expand(data, car, -1, usedEdge);
+				return expand(data, car, -1, position, currentScore, usedEdge);
 			} else {
 				usedEdge = firstEdge;
 				positions[car] = newPosition;
+				times[car] += duration;
 
 				const Street* dummy;
-				int score = expand(data, car, depth - 1, dummy);
+				int score = expand(data, car, depth - 1, position, currentScore, dummy);
 
 				positions[car] = position;
+				times[car] -= duration;
 				return score;
 			}
 		}
@@ -1695,11 +1762,65 @@ struct GreedyState {
 	void run(TestCase& data) {
 		covered.resize(data.streets.size());
 		positions = vector<int>(data.cars, data.startIndex);
-		while(true) {
-			const Street* usedEdge;
-			expand(data, 0, 5, usedEdge);
-			positions[0] = usedEdge->other(positions[0]);
+		solution.cars.resize(data.cars);
+		times.resize(data.cars);
+		for (int i = 0; i < (int)positions.size(); i++) {
+			solution.cars[i].junctions.push_back(positions[i]);
 		}
+		//heuristic(data);
+		//solution.print();
+		//return;
+
+		int iterations = 0;
+		bool complete = false;
+		while(!complete) {
+			int car = 0;
+			for (int i = 1; i < (int)times.size(); i++) {
+				if (times[i] < times[car]) car = i;
+			}
+
+			// Break when the time is up
+			if (times[car] >= data.timeLimit) break;
+
+			int steps = max(1, (int)sqrt(iterations));
+			for (int k = 0; k < steps; k++) {
+				iterations++;
+				/*if (iterations > 1000) {
+					complete = true;
+					break;
+				}*/
+				int currentScore = heuristic(data);
+				if (iterations % 100 == 0) {
+					cerr << (100*times[car] / data.timeLimit) << "%" << " " << (-currentScore) << endl;
+				}
+
+				const Street* usedEdge;
+				int prevPos = solution.cars[car].junctions[max((int)solution.cars[car].junctions.size()-2, 0)];
+				expand(data, car, 7, prevPos, currentScore, usedEdge);
+				if (usedEdge == nullptr) {
+					cerr << "Covered everything" << endl;
+					complete = true;
+					// Covered everything
+					break;
+				} else {
+					positions[car] = usedEdge->other(positions[car]);
+					times[car] += usedEdge->duration;
+					covered[usedEdge->index] = true;
+					solution.cars[car].junctions.push_back(positions[car]);
+				}
+			}
+		}
+
+		// Make sure the time limit is never exceeded
+		Solution trimmed = trimSolution(data, solution);
+		cerr << "Trimmed solution " << trimmed.score(data) << endl;
+
+		cerr << "Optimizing solution" << endl;
+		Solution optimized = optimizeSolution(data, trimmed);
+		cerr << "Optimized " << optimized.score(data) << endl;
+
+		optimized.print();
+		//solution.print();
 	}
 };
 
