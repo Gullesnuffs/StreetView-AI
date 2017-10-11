@@ -151,7 +151,7 @@ struct Solution{
 	int score(const TestCase& data) const {
 		vector<bool> covered(data.streets.size());
 		for(const Car& car : cars) {
-			for (int i = 0; i < car.junctions.size()-1; i++) {
+			for (int i = 0; i < (int)car.junctions.size()-1; i++) {
 				int a = car.junctions[i];
 				int b = car.junctions[i+1];
 				for (auto& edge : data.streets) {
@@ -234,7 +234,7 @@ struct BruteForceState{
 			expectedAdditionalLength -= s.length;
 		}
 
-		for (;canTakeIndex < data.orderedStreets.size(); canTakeIndex++) {
+		for (;canTakeIndex < (int)data.orderedStreets.size(); canTakeIndex++) {
 			auto& s = data.orderedStreets[canTakeIndex];
 			if(covered[s.index]) continue;
 			if(expectedAdditionalTime + s.duration <= remainingTime){
@@ -246,7 +246,7 @@ struct BruteForceState{
 		}
 
 		upperBound = currentScore + expectedAdditionalLength;
-		if(canTakeIndex < data.orderedStreets.size()) {
+		if(canTakeIndex < (int)data.orderedStreets.size()) {
 			auto& s = data.orderedStreets[canTakeIndex];
 			upperBound += (int) floor(((double)s.length * (remainingTime - expectedAdditionalTime) + 0.0001) / s.duration);
 		}
@@ -279,11 +279,6 @@ struct BruteForceState{
 
 		assert(upperBound == ub);
 		return ub;
-	}
-
-	int timeLowerBound(const TestCase& data) {
-		auto cov = covered;
-
 	}
 };
 
@@ -376,12 +371,12 @@ TestCase compressTestCase(TestCase& data, Solution& solution) {
 	vector<bool> covered(data.streets.size());
 	int maxAdditional = 10;
 	for(const Car& car : solution.cars) {
-		for (int i = 0; i < car.junctions.size()-1; i++) {
+		for (int i = 0; i < (int)car.junctions.size()-1; i++) {
 			covered[streetBetween(data, car.junctions[i], car.junctions[i+1]).index] = true;
 		}
 	}
 
-	for (int i = 0; i < covered.size(); i++) {
+	for (int i = 0; i < (int)covered.size(); i++) {
 		if (!covered[i]) {
 			maxAdditional--;
 			if (maxAdditional <= 0) {
@@ -481,7 +476,7 @@ TestCase compressTestCase(TestCase& data, Solution& solution) {
 			combinedStreet.directed = false;
 			combinedStreet.to = split2nodeIndex[car.junctions[i]];
 			combinedStreet.index = newData.streets.size();
-			for (int k = 0; k < combinedStreet.innerJunctions.size() - 1; k++) {
+			for (int k = 0; k < (int)combinedStreet.innerJunctions.size() - 1; k++) {
 				streetBetween(data, combinedStreet.innerJunctions[k], combinedStreet.innerJunctions[k+1]);
 			}
 
@@ -512,7 +507,7 @@ Solution expandSolution (TestCase& originalTestCase, TestCase& expandedTestCase,
 		const Car& car = solution.cars[c];
 		auto& newJunctions = newSolution.cars[c].junctions;
 
-		for (int i = 0; i < car.junctions.size()-1; i++) {
+		for (int i = 0; i < (int)car.junctions.size()-1; i++) {
 			int a = car.junctions[i];
 			int b = car.junctions[i+1];
 			Street bestEdge;
@@ -552,9 +547,9 @@ Solution expandSolution (TestCase& originalTestCase, TestCase& expandedTestCase,
 
 	for (auto& c : newSolution.cars) {
 		for (auto j : c.junctions) {
-			assert(j >= 0 && j < originalTestCase.junctions.size());
+			assert(j >= 0 && j < (int)originalTestCase.junctions.size());
 		}
-		for (int i = 0; i < c.junctions.size()-1; i++) {
+		for (int i = 0; i < (int)c.junctions.size()-1; i++) {
 			assert(hasStreetBetween(originalTestCase, c.junctions[i], c.junctions[i+1]));
 		}
 	}
@@ -658,7 +653,7 @@ Solution bruteforce(TestCase data) {
 	return Solution(data, bestState.solution);
 }
 
-int countOut(const TestCase& data, const State& s, map<Street, int>& source, map<Street, int>& destination, int node) {
+int countOut(const TestCase& data, const State& s, map<Street, int>& source, int node) {
 	int ret = 0;
 	for(auto e : data.outEdges[node]) {
 		if(s.covered[e.index])
@@ -670,7 +665,7 @@ int countOut(const TestCase& data, const State& s, map<Street, int>& source, map
 	return ret;
 }
 
-int countIn(const TestCase& data, const State& s, map<Street, int>& source, map<Street, int>& destination, int node) {
+int countIn(const TestCase& data, const State& s, map<Street, int>& destination, int node) {
 	int ret = 0;
 	for(auto e : data.inEdges[node]) {
 		if(s.covered[e.index])
@@ -1175,10 +1170,10 @@ State extendSolution(const TestCase& data, State s) {
 			continue;
 		if(e.directed)
 			continue;
-		int rel1 = countOut(data, s, source, destination, e.from) -
-		countIn(data, s, source, destination, e.from);
-		int rel2 = countOut(data, s, source, destination, e.to) -
-		countIn(data, s, source, destination, e.to);
+		int rel1 = countOut(data, s, source, e.from) -
+		countIn(data, s, destination, e.from);
+		int rel2 = countOut(data, s, source, e.to) -
+		countIn(data, s, destination, e.to);
 		if(rel1 > rel2) {
 			source[e] = e.to;
 			destination[e] = e.from;
