@@ -155,7 +155,7 @@ struct Solution{
 				int a = car.junctions[i];
 				int b = car.junctions[i+1];
 				for (auto& edge : data.streets) {
-					if (edge.other(a) == b && edge.other(b) == a && !covered[edge.index]) {
+					if (((edge.from == a && edge.to == b) || (!edge.directed && edge.from == b && edge.to == a)) && !covered[edge.index]) {
 						covered[edge.index] = true;
 						break;
 					}
