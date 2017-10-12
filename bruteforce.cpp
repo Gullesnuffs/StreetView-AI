@@ -3,21 +3,38 @@
 
 using namespace std;
 
+/** Coordinates for a single junction or node in the graph */
 struct Junction{
 	double lat, lng;
 };
 
+/** Edge in the graph (possibly directed) */
 struct Street{
+	/** Index of the starting junction */
 	int from, to;
+	/** True if the edge is directed and only goes in the direction from-to */
 	bool directed;
-	int duration, length;
-	int index, orderedIndex;
+	/** Time in seconds it takes to traverse this street */
+	int duration;
+	/** Length of this street in meters */
+	int length;
+	/** Index of this street in the graph */
+	int index
+	/** Index of this street when ordered by the value length/duration (descending) */
+	int orderedIndex;
+	/** In a compressed graph, these are the nodes of the original graph that the edge corresponds to.
+	 * This includes the starting and ending nodes.
+	 */
 	vector<int> innerJunctions;
 
+	/** other(from) returns to and other(to) returns from.
+	 * For all other input values the result is undefined.
+	 */
 	int other(int current) const {
 		return to + from - current;
 	}
 
+	/** Arbitrary ordering of edges to make it possible to store edges in maps */
 	bool operator< (const Street &other) const {
 		if(index != other.index) {
 			return index < other.index;
@@ -26,16 +43,28 @@ struct Street{
 	}
 };
 
+/** Input graph and various other problem parameters */
 struct TestCase{
+	/** Nodes in the graph */
 	vector<Junction> junctions;
+	/** For every node this lists the edges going out from that node */
 	vector<vector<Street>> outEdges;
+	/** For every node this lists the edges going in to that node */
 	vector<vector<Street>> inEdges;
+	/** Edges in the graph */
 	vector<Street> streets;
+	/** Edges in the graph ordered by their value of length/duration */
 	vector<Street> orderedStreets;
+	/** Number of cars that are available to cover the graph */
 	int cars;
+	/** Index of the node that the cars start at */
 	int startIndex;
+	/** Total time limit in second that each car has to finish within */
 	int timeLimit;
 
+	/** Returns the edge going from the node with index #from to the node with index #to.
+	 * If there is no such edge then this method will panic.
+	 */
 	Street getEdge(int from, int to) const {
 		for(auto e : outEdges[from]) {
 			if(e.other(from) == to)
@@ -45,6 +74,7 @@ struct TestCase{
 	}
 };
 
+/** Fills the #orderedStreets list */
 void calculateOrderedStreets(TestCase& data) {
 	vector<pair<double,int>> partial;
 	for(int i = 0; i < (int)data.streets.size(); i++) {
@@ -59,6 +89,7 @@ void calculateOrderedStreets(TestCase& data) {
 	}
 }
 
+/** Fills the #outEdges and #inEdges lists */
 void fillInAndOutEdges(TestCase& data) {
 	for (auto& street : data.streets) {
 		data.outEdges[street.from].push_back(street);
@@ -70,6 +101,7 @@ void fillInAndOutEdges(TestCase& data) {
 	}
 }
 
+/** Parses a test case from stdin */
 TestCase parseTestCase() {
 	TestCase data;
 	int N, M;
@@ -126,6 +158,7 @@ TestCase parseTestCase() {
 	return data;
 }
 
+/** True if there is a street from junction1 to junction2 */
 bool hasStreetBetween(const TestCase& data, int junction1, int junction2) {
 	for (Street s : data.outEdges[junction1]) {
 		if (s.other(junction1) == junction2) return true;
@@ -133,6 +166,9 @@ bool hasStreetBetween(const TestCase& data, int junction1, int junction2) {
 	return false;
 }
 
+/** Returns the edge going from the node with index #junction1 to the node with index #junction2.
+ * If there is no such edge then this method will panic.
+ */
 Street streetBetween(const TestCase& data, int junction1, int junction2) {
 	for (Street s : data.outEdges[junction1]) {
 		if (s.other(junction1) == junction2) return s;
@@ -141,24 +177,34 @@ Street streetBetween(const TestCase& data, int junction1, int junction2) {
 	assert(false);
 }
 
+/** Path of a single car through a series of junctions */
 struct Car{
 	vector<int> junctions;
 };
 
+/** Solution that builds upon an earlier solution by moving a single car to a new junction */
 struct PartialSolution {
+	/** Car to move */
 	int car;
+	/** Junction to move the car to.
+	 * The car must be able to move from where it was in the orevious solution to this junction.
+	 */
 	int junction;
+	/** Earlier solution */
 	PartialSolution* previous;
 
 	PartialSolution(PartialSolution* previous, int car, int junction) : previous(previous), car(car), junction(junction) {
-	 }
+	}
 };
 
+/** Solution to a test case */
 struct Solution{
+	/** Paths for all cars */
 	vector<Car> cars;
 
 	Solution() {}
 
+	/** Create a solution from a sequence of partial solutions */
 	Solution(TestCase& data, PartialSolution* partial) {
 		cars.resize(data.cars);
 		while(partial != nullptr) {
@@ -170,6 +216,7 @@ struct Solution{
 		}
 	}
 
+	/** Print this solution to stdout */
 	void print() {
 		cout << cars.size() << endl;
 		for(Car car : cars) {
@@ -179,19 +226,23 @@ struct Solution{
 		}
 	}
 
+	/** Score for this solution.
+	 * This is the sum of the lengths of each covered street.
+	 */
 	int score(const TestCase& data) const {
 		vector<bool> covered(data.streets.size());
 		for(const Car& car : cars) {
 			for (int i = 0; i < (int)car.junctions.size()-1; i++) {
 				int a = car.junctions[i];
 				int b = car.junctions[i+1];
+				// Note that for compressed graphs, there may be multiple edges between 2 nodes.
+				// So we cover as many of them as we can.
 				for (auto& edge : data.streets) {
 					if (((edge.from == a && edge.to == b) || (!edge.directed && edge.from == b && edge.to == a)) && !covered[edge.index]) {
 						covered[edge.index] = true;
 						break;
 					}
 				}
-				//covered[streetBetween(data, car.junctions[i], car.junctions[i+1]).index] = true;
 			}
 		}
 
@@ -203,12 +254,20 @@ struct Solution{
 	}
 };
 
-struct BruteForceState{
+/** A single state in the brute force A* search */
+struct BruteForceState {
+	/** Car that we are currently handling.
+	 * Cars are handled sequentially.
+	 */
 	int currentCar;
+	/** Index of the node that the current car is currently at */
 	int currentCarLocation;
+	/** Edges that have been covered so far */
 	vector<bool> covered;
+	/** Movements of all cars up to this point */
 	PartialSolution* solution;
 
+	/** Arbitrary ordering to make it possible to put states in maps */
 	bool operator<(const BruteForceState &other) const {
 		if(currentCar != other.currentCar)
 			return currentCar < other.currentCar;
@@ -222,6 +281,7 @@ struct BruteForceState{
 		return 0;
 	}
 
+	/** Score up to this point */
 	int score(const TestCase& data) const {
 		int ret = 0;
 		for(int i = 0; i < (int)data.streets.size(); i++) {
@@ -231,11 +291,20 @@ struct BruteForceState{
 	}
 
 	int canTakeIndex = 0;
+	/** Total time remaining for all cars.
+	 * This is the sum of the cars individual time limits.
+	 */
 	int remainingTime = 0;
+	/** Additional length of streets that we currently expect to cover */
 	int expectedAdditionalLength = 0;
+	/** Additional total time we expect it will take to cover the #expectedAdditionalLength */
 	int expectedAdditionalTime = 0;
+	/** Score up to this point (not including any expected score) */
 	int currentScore = 0;
+	/** Maximum score we can possibly get from this state */
 	int upperBound = 0;
+
+	/** Change this state by moving the current car along the specified edge */
 	void traverseEdge(const TestCase& data, const Street& edge) {
 		int to = edge.other(currentCarLocation);
 		currentCarLocation = to;
@@ -1794,7 +1863,7 @@ struct GreedyState {
 				times[car] -= edge.duration;
 				covered[edge.index] = false;
 
-				// This edge is better if it yields a higher expected score or 
+				// This edge is better if it yields a higher expected score or
 				// if the score is equal but we get a higher score immediately when traversing it
 				if (score > bestScore) { // || (score == bestScore && edge.length*bestEdge->duration > edge.duration*bestEdge->length)) {
 					bestScore = score;
