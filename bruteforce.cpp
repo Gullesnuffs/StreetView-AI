@@ -1435,13 +1435,14 @@ Solution greedySolver(TestCase data) {
 	s.currentCar = 0;
 	s.covered.resize(data.streets.size());
 	s.solution.cars.resize(data.cars);
+
+	/** Process the cars sequentially. */
 	for(int c = 0; c < data.cars; c++) {
 		s.currentCar = c;
 		s.currentCarLocation = data.startIndex;
 		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
 		s = extendSolution(data, s);
 	}
-	cerr << "Score: " << s.score(data) << endl;
 	return s.solution;
 }
 
@@ -1452,6 +1453,8 @@ Solution eulerianSolver(TestCase data) {
 	s.currentCar = 0;
 	s.covered.resize(data.streets.size());
 	s.solution.cars.resize(data.cars);
+
+	/** Process the cars sequentially. */
 	for(int c = 0; c < data.cars; c++) {
 		s.currentCar = c;
 		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
@@ -1472,12 +1475,7 @@ Solution eulerianSolver(TestCase data) {
 			s.covered[e.index] = true;
 			s.solution.cars[s.currentCar].junctions.push_back(curNode);
 		}
-		if(enoughTime) {
-			cerr << "Warning! Car " << c << " finished its cycle" << endl;
-		}
-		continue;
 	}
-	cerr << "Score: " << s.score(data) << endl;
 	return s.solution;
 }
 
@@ -1903,7 +1901,7 @@ struct GreedyState {
 int main(){
 	auto testCase = parseTestCase();
 	
-	/** To convert the test case, use*/
+	/** To convert the test case to PDDL, use*/
 	// convertToPDDL(testCase);
 
 	auto solution = Solution();
@@ -1911,10 +1909,18 @@ int main(){
 	ll sumScores = 0;
 	ll bestScore = 0;
 	ll numScores = 0;
-	for(int i = 0; i < 1; i++) {
+
+	/** Do several iterations of non-deterministic solver and take the best found solution */
+	for(int i = 0; i < 5; i++) {
+
+		/** Find solution using greedy solver. */
 		solution = greedySolver(testCase);
+		/** Postprocess solution for improved score. */
 		solution = optimizeSolution(testCase, solution);
+		/** Compute score of solution. */
 		int totalScore = checkSolution(testCase, solution);
+
+		/** Update statistics. */
 		sumScores += totalScore;
 		if(totalScore > bestScore) {
 			bestScore = totalScore;
@@ -1924,5 +1930,7 @@ int main(){
 		cerr << "Best score found: " << bestScore << endl;
 		cerr << "Average score: " << (sumScores)/numScores << endl << endl;
 	}
+
+	/** Print solution so that it can be visualized. */
 	bestSolution.print();
 }
