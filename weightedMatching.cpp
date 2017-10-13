@@ -1,3 +1,13 @@
+/**
+ * See https://github.com/kth-competitive-programming/kactl
+ * Author: Stanford
+ * Date: Unknown
+ * Source: Stanford Notebook
+ * Description: Min cost bipartite matching. Negate costs for max cost.
+ * Time: O(N^3)
+ * Status: tested during ICPC 2015
+ */
+
 #include "weightedMatching.h"
 
 using namespace std;
