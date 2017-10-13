@@ -1,3 +1,12 @@
+"""
+  Takes as input sequence of nodes with latitude and longitude points
+  and input sequence of edges connecting the nodes together and
+  outputs test case with updated lengths and speed between the nodes.
+  .
+  .
+  Used to generate the Campus test case fromm geo points taken manually from
+  GoogleMaps.
+"""
 from geopy.distance import vincenty
 
 N, M, T, C, S, = map(int, input().split())
