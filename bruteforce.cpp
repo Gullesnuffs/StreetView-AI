@@ -732,7 +732,7 @@ Solution bruteforce(TestCase data) {
 		if(dp[cur.s] != cur.remainingTime)
 			continue;
 		if (iteration % 1000 == 0) {
-			cerr << bestSolutionScore << " - " << cur.upperBound << endl;
+			cerr << "Lower bound: " << bestSolutionScore << " - Upper bound: " << cur.upperBound << endl;
 		}
 		iteration++;
 		int score = cur.s.score(data);
@@ -1492,12 +1492,12 @@ int checkSolution(const TestCase& data, const Solution& solution) {
 		}
 		if(duration > data.timeLimit)
 			assert(0);
+		assert(data.startIndex == c.junctions[0]);
 		totDuration += duration;
 	}
 	int ret = 0;
 	for(auto e : doneStreets)
 		ret += e.length;
-	cerr << totDuration << " ";
 	return ret;
 }
 
@@ -1554,7 +1554,6 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 					}
 				}
 			}
-			cerr << checkSolution(data, solution) << endl;
 			State s;
 			s.solution = solution;
 			s.currentCar = cind;
@@ -1567,7 +1566,6 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 			}
 			s = extendSolution(data, s);
 			solution = s.solution;
-			cerr << checkSolution(data, solution) << endl;
 		}
 		if(!improved)
 			break;
@@ -1911,6 +1909,7 @@ int main(){
 	ll numScores = 0;
 
 	/** Do several iterations of non-deterministic solver and take the best found solution */
+	/** For small test cases, use more iterations to find better solutions. */
 	for(int i = 0; i < 5; i++) {
 
 		/** Find solution using greedy solver. */
