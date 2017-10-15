@@ -19,7 +19,7 @@ struct Street{
 	/** Length of this street in meters */
 	int length;
 	/** Index of this street in the graph */
-	int index
+	int index;
 	/** Index of this street when ordered by the value length/duration (descending) */
 	int orderedIndex;
 	/** In a compressed graph, these are the nodes of the original graph that the edge corresponds to.
@@ -353,8 +353,6 @@ struct BruteForceState {
 	}
 
 	int scoreUpperBound(const TestCase& data, int remainingTime) const {
-		//int ub = score(data);
-		//assert(currentScore == score(data));
 		return upperBound;
 
 		assert(remainingTime == this->remainingTime);
@@ -371,7 +369,6 @@ struct BruteForceState {
 			}
 			else {
 				auto res = ub + (int) floor(((double)s.length * t + 0.0001) / s.duration);
-				//auto res = ub;
 				assert(upperBound == res);
 				return res;
 			}
@@ -410,22 +407,8 @@ struct State{
 	}
 
 	int scoreUpperBound(const TestCase& data, int remainingTime) const {
-		// More exact but slower upper bound
-		/*vector<int> bestScore(remainingTime+1);
-		bestScore[0] = score(data);
-		for(int i = 0; i < (int)data.streets.size(); i++) {
-			if(covered[i])
-				continue;
-			const Street& s = data.streets[i];
-			for(int j = remainingTime; j >= s.duration; --j) {
-				bestScore[j] = max(bestScore[j], bestScore[j-s.duration] + s.length);
-			}
-		}
-		int ret = bestScore[0];
-		for(int i = 1; i < remainingTime+1; i++)
-			ret = max(ret, bestScore[i]);
-		return ret;*/
-
+		// Estimate upper bound using allowing fractional items.
+		// This estimate is fast, but it's as good as regular Knapsack
 		int ub = score(data);
 
 		int t = remainingTime;
@@ -441,13 +424,35 @@ struct State{
 			}
 		}
 		return ub;
+
+		// The following code solves Knapsack exactly, giving a better upper bound but taking more time
+		/*vector<int> bestScore(remainingTime+1);
+		bestScore[0] = score(data);
+		for(int i = 0; i < (int)data.streets.size(); i++) {
+			if(covered[i])
+				continue;
+			const Street& s = data.streets[i];
+			for(int j = remainingTime; j >= s.duration; --j) {
+				bestScore[j] = max(bestScore[j], bestScore[j-s.duration] + s.length);
+			}
+		}
+		int ret = bestScore[0];
+		for(int i = 1; i < remainingTime+1; i++)
+			ret = max(ret, bestScore[i]);
+		return ret;*/
 	}
 };
 
+/** Entry in the priority queue of the A*-based exact solver **/
 struct QueueEntry {
+	/** Total amount of remaining time for all cars **/
 	int remainingTime;
-	int upperBound;
+
+	/** Contains information about the current state, for example the covered edges **/
 	BruteForceState s;
+
+	/** An upper bound on the achievable score from this state **/
+	int upperBound;
 
 	QueueEntry(int _remainingTime, int _upperBound, const BruteForceState _s) :
 		remainingTime(_remainingTime),
@@ -455,6 +460,7 @@ struct QueueEntry {
 		s(_s) {
 	}
 
+	/** Compare states so that the states with best potential are processed first **/
 	bool operator<(const QueueEntry& other) const {
 		if(upperBound != other.upperBound)
 			return upperBound < other.upperBound;
@@ -712,8 +718,6 @@ Solution bruteforce(TestCase data) {
 	init.recalculateUpperBound(data);
 	init.scoreUpperBound(data, init.remainingTime);
 	cerr << "Init done" << endl;
-	//init.solution.cars.resize(data.cars);
-	//init.solution.cars[0].junctions.push_back(data.startIndex);
 	addState(init.remainingTime, init, data);
 	BruteForceState bestState = init;
 	int bestSolutionScore = 0;
@@ -728,9 +732,7 @@ Solution bruteforce(TestCase data) {
 		if(dp[cur.s] != cur.remainingTime)
 			continue;
 		if (iteration % 1000 == 0) {
-			cerr << bestSolutionScore << " - " << cur.upperBound << endl;
-			//cerr << w0 << " " << w1 << " " << w2 << " " << w3 << " " << w4 << endl;
-			//cerr << cur.remainingTime << endl;
+			cerr << "Lower bound: " << bestSolutionScore << " - Upper bound: " << cur.upperBound << endl;
 		}
 		iteration++;
 		int score = cur.s.score(data);
@@ -777,8 +779,11 @@ int countIn(const TestCase& data, const State& s, map<Street, int>& destination,
 	return ret;
 }
 
+/** Represents a path in the graph */
 struct Path {
+	/** The index of the starting node */
 	int start;
+	/** The edges in the path, ordered from start to end */
 	vector<Street> edges;
 
 	Path() {
@@ -789,6 +794,7 @@ struct Path {
 		edges = _edges;
 	}
 
+	/** Compute how long time it takes to traverse all edges in the path */
 	int duration() {
 		int ret = 0;
 		for(auto e : edges) {
@@ -798,13 +804,24 @@ struct Path {
 	}
 };
 
+/** Represents a graph with extra edges added so that each node has the same in-degree as out-degree */
 struct EulerGraph {
+
+	/** Determines the from node for every edge in the original graph.
+	 * This is needed because we assign a direction to all undirected edges. */
 	map<Street, int> source;
+	/** Determines the to node for every edge in the original graph.
+	 * This is needed because we assign a direction to all undirected edges. */
 	map<Street, int> destination;
+	/** Counts how many times each edge has been added to the new graph. */
 	map<Street, int> extraEdges;
+	/** For every node, counts how many times its out-edges have been added to the new graph. */
 	map<int, map<Street, int> > extraOutEdges;
+	/** For every node, counts how many times its in-edges have been added to the new graph. */
 	map<int, map<Street, int> > extraInEdges;
+	/** The test case to which this graph corresponds. */
 	TestCase data;
+	/** Contains information about the edges that have been covered. */
 	State state;
 
 	EulerGraph(const TestCase& _data, const State& _state) {
@@ -812,6 +829,7 @@ struct EulerGraph {
 		state = _state;
 	}
 
+	/** Computes the out-degree of a node, with multiplicity. */
 	int outDegree(int node) {
 		int ret = 0;
 		for(auto e : data.outEdges[node]) {
@@ -827,6 +845,7 @@ struct EulerGraph {
 		return ret;
 	}
 
+	/** Computes the in-degree of a node, with multiplicity. */
 	int inDegree(int node) {
 		int ret = 0;
 		for(auto e : data.inEdges[node]) {
@@ -842,10 +861,12 @@ struct EulerGraph {
 		return ret;
 	}
 
+	/** Computes the difference of the out-degree and the in-degree of a node */
 	int relativeDegree(int node) {
 		return outDegree(node) - inDegree(node);
 	}
 
+	/** Computes the total duration of the extra edges that have been added to the graph. */
 	int totalCost() {
 		int ret = 0;
 		for(auto e : extraEdges) {
@@ -854,6 +875,7 @@ struct EulerGraph {
 		return ret;
 	}
 
+	/** Computes if all nodes have the same in-degree as out-degree */
 	bool isOk() {
 		for(int node = 0; node < (int)data.outEdges.size(); ++node) {
 			if(relativeDegree(node))
@@ -862,6 +884,7 @@ struct EulerGraph {
 		return true;
 	}
 
+	/** Add a new extra-edge to the graph from src to dst, based on the street s */
 	void addExtraEdge(Street s, int src, int dst) {
 		if(src != s.from) {
 			swap(s.from, s.to);
@@ -870,9 +893,9 @@ struct EulerGraph {
 		extraEdges[s]++;
 		extraOutEdges[src][s]++;
 		extraInEdges[dst][s]++;
-		//cerr << "Added edge " << src << " " << dst << endl;
 	}
 
+	/** Tries to find a Eulerian circuit passing through all edges in the graph (including extra edges) */
 	vector<Street> getCycle() {
 		int curNode = data.startIndex;
 		vector<Street> ret;
@@ -973,8 +996,9 @@ struct EulerGraph {
 		return ret;
 	}
 
+	/** Find an acceptable solution greedily */
 	void greedy() {
-		cerr << "Using greedy " << endl;
+		/** Assign directions to undirected streets so that the out-degrees and in-degrees of the nodes are balanced */
 		for(auto e : data.streets) {
 			if(e.directed)
 				continue;
@@ -987,9 +1011,13 @@ struct EulerGraph {
 				destination[e] = e.to;
 			}
 		}
+
+		/** Add extra edges so that all nodes have the same in-degree as out-degree */
 		for(int curNode = -1; curNode < (int)data.outEdges.size(); curNode++) {
 			bool needOutEdge = false;
 			bool initialCheck = false;
+
+			/** We treat the initial node specially to ensure that its out-degree is positive */
 			if(curNode == -1) {
 				curNode = data.startIndex;
 				initialCheck = true;
@@ -1039,6 +1067,7 @@ struct EulerGraph {
 		}
 	}
 
+	/** Computes the shortest paths from the node from to all nodes in targets */
 	map<int, Path> computeDistances(int from, set<int> targets) {
 		priority_queue<pair<int, int> > q;
 		map<int, int> minDis;
@@ -1093,8 +1122,10 @@ struct EulerGraph {
 	map<Street, int> bestDestination;
 	vector<Street> bestExtra;
 
+	/** Tries all possible assignments of directions to the edges in undirected, and find paths between the nodes in nodes that make all node have the same in-degree as out-degree and that has as small total cost as possible. */
 	void optimize(set<Street> undirected, set<int> nodes) {
 		if(undirected.size()) {
+			/** Try both assignments of directions to the first street in undirected, and recurse */
 			Street s = *undirected.begin();
 			assert(!s.directed);
 			undirected.erase(s);
@@ -1133,6 +1164,8 @@ struct EulerGraph {
 				}
 			}
 			assert(sources.size() == sinks.size());
+
+			/** Compute costs needed for weighted matching */
 			vector<vector<double> > costs(sources.size());
 			for(int i = 0; i < (int)sources.size(); i++) {
 				for(int j = 0; j < (int)sinks.size(); j++) {
@@ -1148,6 +1181,7 @@ struct EulerGraph {
 					extraEdges.push_back(e);
 				}
 			}
+
 			if(C < bestCost) {
 				bestCost = C;
 				bestSource = source;
@@ -1157,11 +1191,11 @@ struct EulerGraph {
 		}
 	}
 
+	/** Remove all extra edges based on edge e. */
 	void removeAllExtra(Street e) {
 		for(int i = 0; i < 2; i++) {
 			swap(e.from, e.to);
 			if(extraEdges.count(e) && extraEdges[e]) {
-				//cerr << "Removed edge " << e.from << " " << e.to << " " << extraEdges[e] << " times" << endl;
 				extraEdges.erase(e);
 				extraOutEdges[e.from].erase(e);
 				extraOutEdges[e.to].erase(e);
@@ -1171,6 +1205,7 @@ struct EulerGraph {
 		}
 	}
 
+	/** Try to improve the graph using local optimization. */
 	void optimize() {
 		for(int centerNode = 0; centerNode < (int)data.outEdges.size(); ++centerNode) {
 			priority_queue<pair<int, int> > q;
@@ -1211,18 +1246,6 @@ struct EulerGraph {
 			}
 			int previousTotal = totalCost();
 			assert(isOk());
-			/*cerr << "Optimizing over nodes";
-			for(auto node : nodes)
-				cerr << " " << node;
-			cerr << endl;*/
-			/*for(auto e : data.streets) {
-				if(nodes.count(e.from) && nodes.count(e.to)) {
-					if(!e.directed) {
-						undirected.insert(e);
-					}
-					removeAllExtra(e);
-				}
-			}*/
 			for(auto e : undirected) {
 				removeAllExtra(e);
 			}
@@ -1231,19 +1254,11 @@ struct EulerGraph {
 			optimize(undirected, nodes);
 			source = bestSource;
 			destination = bestDestination;
-			//cerr << "Adding extra" << endl;
 			for(auto e : bestExtra) {
 				addExtraEdge(e, e.from, e.to);
 			}
-			//cerr << "Finished adding extra" << endl;
 			int newTotal = totalCost();
 			assert(isOk());
-			if(newTotal > previousTotal) {
-				cerr << "ERROR! New total is " << newTotal << endl;
-				cerr << "Old was " << previousTotal << endl;
-				cerr << "Intermediate was " << intermediateCost << endl;
-				assert(0);
-			}
 			if(newTotal < previousTotal) {
 				cerr << newTotal << endl;
 			}
@@ -1251,8 +1266,8 @@ struct EulerGraph {
 	}
 };
 
-int totalScore;
 
+/** Given a state, try to greedily extend the paths of the cars to cover more edges */
 State extendSolution(const TestCase& data, State s) {
 	map<Street, int> source;
 	map<Street, int> destination;
@@ -1313,27 +1328,17 @@ State extendSolution(const TestCase& data, State s) {
 			if(s.covered[e.index] || e.duration > remainingTime)
 				continue;
 			double value = (rand()%1000)+10000;
-			//value *= ((double)e.length) / e.duration + 1;
-			//value /= (1 + totDegree[e.other(s.currentCarLocation)]);
-			if(e.directed)
+			if(e.directed) {
+				/** Prefer covering directed edges because they are more difficult. */
 				value *= 5;
-			else {
-				if(source[e] == s.currentCarLocation) {
-					value *= 1;
-				}
-				else {
-					value /= 1;
-				}
 			}
-			/*if(!e.directed && outDegree[e.other(s.currentCarLocation)] < inDegree[e.other(s.currentCarLocation)]) {
-				value /= 1.3;
-			}*/
 			if(value > bestEdgeValue) {
 				bestEdgeValue = value;
 				bestEdge = e;
 			}
 		}
 		if(bestEdgeValue >= 0) {
+			/** Found an uncovered outgoing edge, so let's traverse it! */
 			int to = bestEdge.other(s.currentCarLocation);
 			assert(totDegree[s.currentCarLocation] >= outDegree[s.currentCarLocation]);
 			assert(totDegree[to] >= outDegree[to]);
@@ -1351,9 +1356,9 @@ State extendSolution(const TestCase& data, State s) {
 			s.covered[bestEdge.index] = true;
 			s.solution.cars[s.currentCar].junctions.push_back(to);
 			remainingTime -= bestEdge.duration;
-			//cerr << "Good " << e.duration << endl;
 			continue;
 		}
+		/** Didn't find any uncovered outgoing edges, so we're using Dijkstra's algorithm to find a suitable node to go to. */
 		priority_queue<pair<int, int> > q;
 		map<int, int> minDis;
 		map<int, int> parent;
@@ -1370,14 +1375,13 @@ State extendSolution(const TestCase& data, State s) {
 			if(minDis[node] < d)
 				continue;
 			assert(totDegree[node] >= outDegree[node]);
-			if(outDegree[node] && /* && outDegree[node] >= inDegree[node] && */totDegree[node]%2 >= 1 && node != s.currentCarLocation) {
+			if(outDegree[node] && totDegree[node]%2 == 1 && node != s.currentCarLocation) {
 				vector<int> path;
 				while(node != s.currentCarLocation){
 					path.push_back(node);
 					node = parent[node];
 				}
 				reverse(path.begin(), path.end());
-				//cerr << "Path length " << path.size() << endl;
 				for(int i = 0; i < (int)path.size(); i++) {
 					int to = path[i];
 					const Street& edge = parentEdge[to];
@@ -1403,15 +1407,13 @@ State extendSolution(const TestCase& data, State s) {
 					s.covered[edge.index] = true;
 					s.solution.cars[s.currentCar].junctions.push_back(to);
 					remainingTime -= edge.duration;
-					//cerr << "Bad  " << edge.duration << endl;
 				}
 				break;
 			}
 			for(auto e : data.outEdges[node]) {
 				int to = e.other(node);
 				int newDis = d;
-				//if(s.covered[e.index])
-					newDis += e.duration;
+				newDis += e.duration;
 				auto it = minDis.find(to);
 				if(it == minDis.end() || newDis < it->second) {
 					q.push(make_pair(-newDis, to));
@@ -1427,6 +1429,23 @@ State extendSolution(const TestCase& data, State s) {
 	return s;
 }
 
+/** Constructs a solution greedily. */
+Solution greedySolver(TestCase data) {
+	State s;
+	s.currentCar = 0;
+	s.covered.resize(data.streets.size());
+	s.solution.cars.resize(data.cars);
+
+	/** Process the cars sequentially. */
+	for(int c = 0; c < data.cars; c++) {
+		s.currentCar = c;
+		s.currentCarLocation = data.startIndex;
+		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
+		s = extendSolution(data, s);
+	}
+	return s.solution;
+}
+
 
 // Solution based on constructing Eulerian paths
 Solution eulerianSolver(TestCase data) {
@@ -1434,104 +1453,33 @@ Solution eulerianSolver(TestCase data) {
 	s.currentCar = 0;
 	s.covered.resize(data.streets.size());
 	s.solution.cars.resize(data.cars);
-	/*map<int, int> numIn;
-	map<int, int> numOut;
-	map<int, int> numUndirected;
-	for(auto e : data.streets) {
-		if(e.directed){
-			++numOut[e.from];
-			++numIn[e.to];
-		}
-		else{
-			++numUndirected[e.from];
-			++numUndirected[e.to];
-		}
-	}
-	for(int i = 0; i < (int)data.inEdges.size(); i++) {
-		cerr << numIn[i] << " " << numOut[i] << " " << numUndirected[i] << endl;
-	}*/
-	for(int c = 0; c < data.cars; c++) {
-		//cerr << "Car " << c << endl;
-		if(false){
-			s.currentCar = c;
-			s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
-			EulerGraph eulerGraph(data, s);
-			eulerGraph.greedy();
-			eulerGraph.optimize();
-			vector<Street> sequence = eulerGraph.getCycle();
-			int curNode = data.startIndex;
-			double remainingTime = data.timeLimit;
-			bool enoughTime = true;
-			for(auto e : sequence) {
-				if(e.duration > remainingTime) {
-					enoughTime = false;
-					break;
-				}
-				remainingTime -= e.duration;
-				curNode = e.other(curNode);
-				s.covered[e.index] = true;
-				s.solution.cars[s.currentCar].junctions.push_back(curNode);
-			}
-			if(enoughTime) {
-				cerr << "Warning! Car " << c << " finished its cycle" << endl;
-			}
-			continue;
-		}
-		s.currentCar = c;
-		s.currentCarLocation = data.startIndex;
-		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
-		s = extendSolution(data, s);
-		//cerr << "Remaining " << remainingTime << endl;
-		/*for(int i = 0; i < (int)data.junctions.size(); i++) {
-			int totOut = additionalOutEdges.size();
-			int totIn = additionalInEdges.size();
-			for(auto e : data.outEdges[i]){
-				if(covered[e.index])
-					continue;
-				++totOut;
-			}
-			for(auto e : data.inEdges[i]){
-				if(covered[e.index])
-					continue;
-				++totIn;
-			}
-			relDegree[i] = totOut - totIn;
-		}
-		for(int i = 0; i < (int)data.junctions.size(); i++) {
-			while(relDegree[i]) {
-				priority_queue<pair<int, int> > q;
-				map<int, int> minDis;
-				q.push(make_pair(0, i));
-				minDis[i] = 0;
-				while(!q.empty()){
-					auto cur = q.top();
-					q.pop();
-					int d = -cur.first;
-					int node = cur.second;
-					if(relDegree[node]){
 
-						break;
-					}
-					if(minDis[node] < d)
-						continue;
-					for(auto e : data.outEdges[node]) {
-						int to = e.other(node);
-						int newDis = d + e.duration;
-						auto it = minDis.find(to);
-						if(it == minDis.end() || newDis < it->second) {
-							q.push(make_pair(-newDis, to));
-							M[to] = newDis;
-						}
-					}
-				}
+	/** Process the cars sequentially. */
+	for(int c = 0; c < data.cars; c++) {
+		s.currentCar = c;
+		s.solution.cars[s.currentCar].junctions.push_back(data.startIndex);
+		EulerGraph eulerGraph(data, s);
+		eulerGraph.greedy();
+		eulerGraph.optimize();
+		vector<Street> sequence = eulerGraph.getCycle();
+		int curNode = data.startIndex;
+		double remainingTime = data.timeLimit;
+		bool enoughTime = true;
+		for(auto e : sequence) {
+			if(e.duration > remainingTime) {
+				enoughTime = false;
+				break;
 			}
-		}*/
+			remainingTime -= e.duration;
+			curNode = e.other(curNode);
+			s.covered[e.index] = true;
+			s.solution.cars[s.currentCar].junctions.push_back(curNode);
+		}
 	}
-	cerr << "Score: " << s.score(data) << endl;
-	totalScore = s.score(data);
 	return s.solution;
 }
 
+/** Verifies that a given solution is legal and computes the score of the solution. */
 int checkSolution(const TestCase& data, const Solution& solution) {
 	set<Street> doneStreets;
 	int totDuration = 0;
@@ -1544,15 +1492,16 @@ int checkSolution(const TestCase& data, const Solution& solution) {
 		}
 		if(duration > data.timeLimit)
 			assert(0);
+		assert(data.startIndex == c.junctions[0]);
 		totDuration += duration;
 	}
 	int ret = 0;
 	for(auto e : doneStreets)
 		ret += e.length;
-	cerr << totDuration << " ";
 	return ret;
 }
 
+/** Postprocess a given solution to try and improve the score further. */
 Solution optimizeSolution(const TestCase& data, Solution solution) {
 	while(true) {
 		EulerGraph graph(data, State());
@@ -1581,8 +1530,6 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 					target.insert(c.junctions[j+1]);
 					Path p = graph.computeDistances(c.junctions[i], target)[c.junctions[j+1]];
 					if(p.duration() < duration) {
-						/*cerr << checkSolution(data, solution) << endl;
-						cerr << "Decreased time by " << duration - p.duration() << endl;*/
 						improved = true;
 						vector<int> newJunctions;
 						for(int k = 0; k <= i; ++k) {
@@ -1607,7 +1554,6 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 					}
 				}
 			}
-			cerr << checkSolution(data, solution) << endl;
 			State s;
 			s.solution = solution;
 			s.currentCar = cind;
@@ -1620,7 +1566,6 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 			}
 			s = extendSolution(data, s);
 			solution = s.solution;
-			cerr << checkSolution(data, solution) << endl;
 		}
 		if(!improved)
 			break;
@@ -1628,6 +1573,7 @@ Solution optimizeSolution(const TestCase& data, Solution solution) {
 	return solution;
 }
 
+/** Convert a given test case to PDDL. */
 void convertToPDDL(const TestCase& data) {
 	ofstream domain;
 	domain.open("domain.pddl");
@@ -1769,12 +1715,7 @@ struct GreedyState {
 	int heuristic(const TestCase& data) {
 		// Find closest node with an out edge
 		priority_queue<pair<float,int>> q;
-		//map<int,int> parents;
-		//map<int,const Street*> edges;
-		//map<int,float> dists;
 		vector<NodeInfo> infos(data.junctions.size(), NodeInfo(1e9));
-		//vector<const Street*> edges(data.junctions.size());
-		//vector<int> parents(data.junctions.size());
 
 		for (int i = 0; i < (int)positions.size(); i++) {
 			q.push(make_pair(0, positions[i]));
@@ -1810,9 +1751,6 @@ struct GreedyState {
 				visited[e.index] = true;
 				totalTime += e.duration;
 
-				//if (parents[e.from] != -1) cout << "DEBUG:LINE " << 0 << " " << e.from << " " << parents[e.from] << endl;
-				//if (parents[e.to] != -1) cout << "DEBUG:LINE " << 0 << " " << e.to << " " << parents[e.to] << endl;
-
 				auto node = e.directed ? e.from : (infos[e.to].parent == e.from ? e.from : e.to);
 
 				while(true) {
@@ -1845,12 +1783,9 @@ struct GreedyState {
 		if (anyNonCoveredEdge) {
 			const Street* bestEdge = nullptr;
 			int bestScore = -1e9;
-			//int offset = rand();
 			for (int i = 0; i < (int)data.outEdges[position].size(); i++) {
-				//auto& edge = data.outEdges[position][(i + offset) % (int)data.outEdges[position].size()];
 				auto& edge = data.outEdges[position][i];
 				if (covered[edge.index]) continue;
-				//if (edge.other(position) == previousPosition) continue;
 
 				covered[edge.index] = true;
 				times[car] += edge.duration;
@@ -1865,7 +1800,7 @@ struct GreedyState {
 
 				// This edge is better if it yields a higher expected score or
 				// if the score is equal but we get a higher score immediately when traversing it
-				if (score > bestScore) { // || (score == bestScore && edge.length*bestEdge->duration > edge.duration*bestEdge->length)) {
+				if (score > bestScore) {
 					bestScore = score;
 					bestEdge = &edge;
 
@@ -1876,8 +1811,6 @@ struct GreedyState {
 				}
 			}
 
-			//if (bestEdgeIsCovered) cerr << "!" << endl;
-			//usedEdge = &data.outEdges[position][bestEdge];
 			usedEdge = bestEdge;
 			return bestScore;
 		} else {
@@ -1914,9 +1847,6 @@ struct GreedyState {
 		for (int i = 0; i < (int)positions.size(); i++) {
 			solution.cars[i].junctions.push_back(positions[i]);
 		}
-		//heuristic(data);
-		//solution.print();
-		//return;
 
 		int iterations = 0;
 		bool complete = false;
@@ -1932,10 +1862,6 @@ struct GreedyState {
 			int steps = max(1, (int)sqrt(iterations));
 			for (int k = 0; k < steps; k++) {
 				iterations++;
-				/*if (iterations > 1000) {
-					complete = true;
-					break;
-				}*/
 				int currentScore = heuristic(data);
 				if (iterations % 100 == 0) {
 					cerr << (100*times[car] / data.timeLimit) << "%" << " " << (-currentScore) << endl;
@@ -1967,44 +1893,43 @@ struct GreedyState {
 		cerr << "Optimized " << optimized.score(data) << endl;
 
 		optimized.print();
-		//solution.print();
 	}
 };
 
 int main(){
 	auto testCase = parseTestCase();
-	convertToPDDL(testCase);
-	// GreedyState greedyState;
-	// greedyState.run(testCase);
-	// return 0;
+	
+	/** To convert the test case to PDDL, use*/
+	// convertToPDDL(testCase);
 
 	auto solution = Solution();
-	//solution = optimizeSolution(testCase, solution);
 	auto bestSolution = solution;
 	ll sumScores = 0;
 	ll bestScore = 0;
 	ll numScores = 0;
+
+	/** Do several iterations of non-deterministic solver and take the best found solution */
+	/** For small test cases, use more iterations to find better solutions. */
 	for(int i = 0; i < 5; i++) {
-		solution = eulerianSolver(testCase);
-		cerr << "Compressing" << endl;
-		auto compressed = compressTestCase(testCase, solution);
-		cerr << "SIZE: " << compressed.junctions.size() << endl;
-		auto smallSolution = bruteforce(compressed);
-		solution = expandSolution(testCase, compressed, smallSolution);
-		if(totalScore > 1915000) {
-			solution = optimizeSolution(testCase, solution);
-		}
-		totalScore = checkSolution(testCase, solution);
+
+		/** Find solution using greedy solver. */
+		solution = greedySolver(testCase);
+		/** Postprocess solution for improved score. */
+		solution = optimizeSolution(testCase, solution);
+		/** Compute score of solution. */
+		int totalScore = checkSolution(testCase, solution);
+
+		/** Update statistics. */
 		sumScores += totalScore;
 		if(totalScore > bestScore) {
 			bestScore = totalScore;
 			bestSolution = solution;
 		}
 		++numScores;
-		cerr << "Best: " << bestScore << endl;
-		cerr << "Average: " << (sumScores)/numScores << endl << endl;
+		cerr << "Best score found: " << bestScore << endl;
+		cerr << "Average score: " << (sumScores)/numScores << endl << endl;
 	}
-	/*auto solution = bruteforce(testCase);
-	auto bestSolution = solution;*/
+
+	/** Print solution so that it can be visualized. */
 	bestSolution.print();
 }
